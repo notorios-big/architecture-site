@@ -38,8 +38,8 @@ const FlowCanvas = ({
     Controls,
     MiniMap,
     Background,
-    useNodesState,
-    useEdgesState,
+    applyNodeChanges,
+    applyEdgeChanges,
     addEdge,
     MarkerType,
     Handle,
@@ -247,8 +247,81 @@ const FlowCanvas = ({
     return { nodes, edges };
   }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal, MarkerType]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(treeToFlow.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(treeToFlow.edges);
+  const [nodes, setNodes] = useState(treeToFlow.nodes);
+  const [edges, setEdges] = useState(treeToFlow.edges);
+
+  const applyNodeChangesFallback = useCallback((changes, currentNodes) => {
+    return changes.reduce((acc, change) => {
+      if (change.type === 'remove') {
+        return acc.filter(node => node.id !== change.id);
+      }
+
+      if (change.type === 'add' && change.item) {
+        return [...acc, change.item];
+      }
+
+      if (change.type === 'reset') {
+        return acc.map(node => ({ ...node, selected: false }));
+      }
+
+      return acc.map(node => {
+        if (node.id !== change.id) return node;
+
+        switch (change.type) {
+          case 'position':
+            return { ...node, position: change.position, dragging: change.dragging };
+          case 'select':
+            return { ...node, selected: change.selected };
+          case 'dimensions':
+            return { ...node, width: change.dimensions?.width, height: change.dimensions?.height };
+          default:
+            return node;
+        }
+      });
+    }, currentNodes);
+  }, []);
+
+  const applyEdgeChangesFallback = useCallback((changes, currentEdges) => {
+    return changes.reduce((acc, change) => {
+      if (change.type === 'remove') {
+        return acc.filter(edge => edge.id !== change.id);
+      }
+
+      if (change.type === 'add' && change.item) {
+        return [...acc, change.item];
+      }
+
+      if (change.type === 'select') {
+        return acc.map(edge => edge.id === change.id ? { ...edge, selected: change.selected } : edge);
+      }
+
+      if (change.type === 'reset') {
+        return acc.map(edge => ({ ...edge, selected: false }));
+      }
+
+      return acc;
+    }, currentEdges);
+  }, []);
+
+  const onNodesChange = useCallback((changes) => {
+    setNodes((prev) => {
+      if (typeof applyNodeChanges === 'function') {
+        return applyNodeChanges(changes, prev);
+      }
+
+      return applyNodeChangesFallback(changes, prev);
+    });
+  }, [applyNodeChanges, applyNodeChangesFallback]);
+
+  const onEdgesChange = useCallback((changes) => {
+    setEdges((prev) => {
+      if (typeof applyEdgeChanges === 'function') {
+        return applyEdgeChanges(changes, prev);
+      }
+
+      return applyEdgeChangesFallback(changes, prev);
+    });
+  }, [applyEdgeChanges, applyEdgeChangesFallback]);
 
   useEffect(() => {
     setNodes((prevNodes) => {
@@ -285,7 +358,20 @@ const FlowCanvas = ({
       markerEnd
     };
 
-    setEdges((eds) => (addEdge ? addEdge(newEdge, eds) : [...eds, newEdge]));
+    const ensureId = (edge) => ({
+      id: edge.id || `${edge.source}-${edge.target}-${Date.now()}`,
+      ...edge
+    });
+
+    setEdges((eds) => {
+      const nextEdge = ensureId(newEdge);
+      if (typeof addEdge === 'function') {
+        const result = addEdge(nextEdge, eds);
+        return Array.isArray(result) ? result : [...eds, nextEdge];
+      }
+
+      return [...eds, nextEdge];
+    });
 
     if (onMoveNode) {
       onMoveNode(params.source, params.target);
