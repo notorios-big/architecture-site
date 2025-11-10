@@ -11,17 +11,16 @@ const ReactFlowLib = window.ReactFlow || {};
 console.log('ReactFlow library loaded:', !!ReactFlowLib);
 console.log('Available exports:', Object.keys(ReactFlowLib));
 
-// Extraer componentes de ReactFlow
-const ReactFlowComponent = ReactFlowLib.default || ReactFlowLib.ReactFlow;
-const {
-  ReactFlowProvider,
-  Controls,
-  MiniMap,
-  Background,
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges
-} = ReactFlowLib;
+// Extraer componentes de ReactFlow v11
+const ReactFlowComponent = ReactFlowLib.default;
+const ReactFlowProvider = ReactFlowLib.ReactFlowProvider;
+const Controls = ReactFlowLib.Controls;
+const MiniMap = ReactFlowLib.MiniMap;
+const Background = ReactFlowLib.Background;
+const useNodesState = ReactFlowLib.useNodesState;
+const useEdgesState = ReactFlowLib.useEdgesState;
+const addEdge = ReactFlowLib.addEdge;
+const MarkerType = ReactFlowLib.MarkerType || { ArrowClosed: 'arrowclosed' };
 
 const FlowView = ({
   tree,
@@ -194,8 +193,7 @@ const FlowView = ({
           animated: true,
           style: { stroke: '#8b5cf6', strokeWidth: 2 },
           markerEnd: {
-            type: 'arrowclosed',
-            color: '#8b5cf6',
+            type: MarkerType.ArrowClosed,
           }
         });
       }
@@ -213,41 +211,37 @@ const FlowView = ({
     return { nodes, edges };
   }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal]);
 
-  // Estado local para nodos y edges
-  const [nodes, setNodes] = useState(initialNodes);
-  const [edges, setEdges] = useState(initialEdges);
+  // Usar hooks de ReactFlow v11 si están disponibles
+  const [nodes, setNodes, onNodesChange] = useNodesState
+    ? useNodesState(initialNodes)
+    : [initialNodes, () => {}, () => {}];
+
+  const [edges, setEdges, onEdgesChange] = useEdgesState
+    ? useEdgesState(initialEdges)
+    : [initialEdges, () => {}, () => {}];
 
   // Actualizar cuando cambia el árbol
   useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-  }, [initialNodes, initialEdges]);
+    if (setNodes) setNodes(initialNodes);
+    if (setEdges) setEdges(initialEdges);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
-  // Handlers
-  const onNodesChange = useCallback((changes) => {
-    setNodes((nds) => applyNodeChanges ? applyNodeChanges(changes, nds) : nds);
-  }, []);
-
-  const onEdgesChange = useCallback((changes) => {
-    setEdges((eds) => applyEdgeChanges ? applyEdgeChanges(changes, eds) : eds);
-  }, []);
-
+  // Handler para crear conexiones
   const onConnect = useCallback((params) => {
     console.log('Nueva conexión:', params);
-    setEdges((eds) => {
-      if (!addEdge) return eds;
-      return addEdge({
-        ...params,
-        type: 'smoothstep',
-        animated: true,
-        style: { stroke: '#10b981', strokeWidth: 3 },
-        markerEnd: {
-          type: 'arrowclosed',
-          color: '#10b981',
-        }
-      }, eds);
-    });
-  }, []);
+    if (!addEdge) return;
+
+    setEdges((eds) => addEdge({
+      ...params,
+      type: 'smoothstep',
+      animated: true,
+      style: { stroke: '#10b981', strokeWidth: 3 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: '#10b981',
+      }
+    }, eds));
+  }, [setEdges]);
 
   if (!ReactFlowComponent) {
     return (
@@ -266,11 +260,11 @@ const FlowView = ({
     );
   }
 
-  const FlowWrapper = ReactFlowProvider || (({ children }) => children);
+  const Wrapper = ReactFlowProvider || (({ children }) => <>{children}</>);
 
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
-      <FlowWrapper>
+      <Wrapper>
         <ReactFlowComponent
           nodes={nodes}
           edges={edges}
@@ -282,6 +276,7 @@ const FlowView = ({
           fitViewOptions={{ padding: 0.2 }}
           minZoom={0.1}
           maxZoom={2}
+          connectionLineType="smoothstep"
           defaultEdgeOptions={{
             type: 'smoothstep',
             animated: true,
@@ -309,11 +304,11 @@ const FlowView = ({
             <strong>💡 Controles:</strong><br/>
             • Arrastra nodos para moverlos<br/>
             • Arrastra desde el borde para conectar<br/>
-            • Selecciona y presiona Delete para eliminar<br/>
-            • Usa la rueda del mouse para zoom
+            • Selecciona conexión + Delete para eliminar<br/>
+            • Rueda del mouse para zoom
           </div>
         </ReactFlowComponent>
-      </FlowWrapper>
+      </Wrapper>
     </div>
   );
 };
