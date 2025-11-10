@@ -22,6 +22,78 @@ const waitForReactFlow = (() => {
   };
 })();
 
+const collectReactFlowSources = (lib) => {
+  const sources = [];
+  const push = (value) => {
+    if (value && !sources.includes(value)) {
+      sources.push(value);
+    }
+  };
+
+  push(lib);
+
+  if (lib && typeof lib === 'object') {
+    push(lib.default);
+    push(lib.ReactFlow);
+  }
+
+  if (typeof lib === 'function') {
+    push(lib.default);
+    push(lib.ReactFlow);
+  }
+
+  const nestedDefault = lib?.default;
+  if (nestedDefault && typeof nestedDefault === 'object') {
+    push(nestedDefault.default);
+    push(nestedDefault.ReactFlow);
+  }
+
+  return sources;
+};
+
+const pickReactFlowExport = (sources, ...keys) => {
+  for (const source of sources) {
+    if (!source) continue;
+    for (const key of keys) {
+      if (key === null) {
+        return source;
+      }
+      if (source[key]) {
+        return source[key];
+      }
+    }
+  }
+  return undefined;
+};
+
+const extractReactFlowExports = (lib) => {
+  const sources = collectReactFlowSources(lib);
+  if (!sources.length) {
+    return {};
+  }
+
+  const ReactFlowComponent = pickReactFlowExport(sources, 'ReactFlow', 'default', null);
+
+  return {
+    ReactFlowComponent,
+    FlowProvider: pickReactFlowExport(sources, 'ReactFlowProvider', 'Provider'),
+    Controls: pickReactFlowExport(sources, 'Controls'),
+    MiniMap: pickReactFlowExport(sources, 'MiniMap'),
+    Background: pickReactFlowExport(sources, 'Background'),
+    applyNodeChanges: pickReactFlowExport(sources, 'applyNodeChanges'),
+    applyEdgeChanges: pickReactFlowExport(sources, 'applyEdgeChanges'),
+    addEdge: pickReactFlowExport(sources, 'addEdge'),
+    MarkerType: pickReactFlowExport(sources, 'MarkerType'),
+    Handle: pickReactFlowExport(sources, 'Handle'),
+    Position: pickReactFlowExport(sources, 'Position')
+  };
+};
+
+const isRenderableComponent = (value) => {
+  if (!value) return false;
+  return typeof value === 'function' || (typeof value === 'object' && '$$typeof' in value);
+};
+
 const FlowCanvas = ({
   tree,
   expandedNodes,
@@ -33,9 +105,8 @@ const FlowCanvas = ({
   reactFlowLib
 }) => {
   const {
-    ReactFlow: ReactFlowFromLib,
-    default: DefaultReactFlow,
-    ReactFlowProvider,
+    ReactFlowComponent,
+    FlowProvider,
     Controls,
     MiniMap,
     Background,
@@ -45,15 +116,16 @@ const FlowCanvas = ({
     MarkerType,
     Handle,
     Position
-  } = reactFlowLib;
+  } = useMemo(() => extractReactFlowExports(reactFlowLib), [reactFlowLib]);
 
-  const ReactFlowComponent = ReactFlowFromLib || DefaultReactFlow;
-  const FlowProvider = ReactFlowProvider || (({ children }) => children);
-  const ControlsComponent = Controls || (() => null);
-  const MiniMapComponent = MiniMap || (() => null);
-  const BackgroundComponent = Background || (() => null);
+  const FlowProviderComponent = isRenderableComponent(FlowProvider)
+    ? FlowProvider
+    : ({ children }) => children;
+  const ControlsComponent = isRenderableComponent(Controls) ? Controls : () => null;
+  const MiniMapComponent = isRenderableComponent(MiniMap) ? MiniMap : () => null;
+  const BackgroundComponent = isRenderableComponent(Background) ? Background : () => null;
 
-  if (!ReactFlowComponent) {
+  if (!isRenderableComponent(ReactFlowComponent)) {
     console.error('ReactFlow no está disponible en la librería cargada', reactFlowLib);
     return (
       <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex items-center justify-center" style={{ height: 'calc(100vh - 280px)' }}>
@@ -413,7 +485,7 @@ const FlowCanvas = ({
 
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
-      <FlowProvider>
+      <FlowProviderComponent>
         <ReactFlowComponent
           nodes={nodes}
           edges={edges}
@@ -449,7 +521,7 @@ const FlowCanvas = ({
             maskColor="rgba(0, 0, 0, 0.1)"
           />
         </ReactFlowComponent>
-      </FlowProvider>
+      </FlowProviderComponent>
     </div>
   );
 };
