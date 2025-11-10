@@ -160,16 +160,15 @@ const FlowView = ({
 
   // Generar el grafo de flujo
   const treeToFlow = useMemo(() => {
-    const nodes = [];
-    const edges = [];
-    
+    const elements = [];
+
     // LAYOUT HORIZONTAL (como Drawflow)
     const HORIZONTAL_SPACING = 400; // Espaciado entre niveles
     const VERTICAL_SPACING = 150;   // Espaciado entre hermanos
-    
+
     // Calcular posiciones para cada nivel
     const levelPositions = new Map(); // nivel -> [yPositions usadas]
-    
+
     const traverse = (node, level = 0, parentId = null) => {
       if (!node) return;
 
@@ -180,19 +179,19 @@ const FlowView = ({
       if (!levelPositions.has(level)) {
         levelPositions.set(level, []);
       }
-      
+
       // Calcular posición Y para este nodo
       const usedPositions = levelPositions.get(level);
       const yPosition = usedPositions.length * VERTICAL_SPACING;
       usedPositions.push(yPosition);
 
       // Crear nodo con posición horizontal
-      nodes.push({
+      elements.push({
         id: nodeId,
         type: 'custom',
-        position: { 
-          x: level * HORIZONTAL_SPACING, 
-          y: yPosition 
+        position: {
+          x: level * HORIZONTAL_SPACING,
+          y: yPosition
         },
         data: {
           node,
@@ -207,17 +206,14 @@ const FlowView = ({
 
       // Crear edge si tiene padre
       if (parentId) {
-        edges.push({
-          id: `${parentId}-${nodeId}`,
+        elements.push({
+          id: `e${parentId}-${nodeId}`,
           source: parentId,
           target: nodeId,
           type: 'smoothstep',
           animated: true,
-          style: { stroke: '#8b5cf6', strokeWidth: 2 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: '#8b5cf6',
-          }
+          arrowHeadType: 'arrowclosed',
+          style: { stroke: '#8b5cf6', strokeWidth: 2 }
         });
       }
 
@@ -233,43 +229,44 @@ const FlowView = ({
     // Procesar cada árbol raíz
     tree.forEach(node => traverse(node));
 
-    return { nodes, edges };
+    return elements;
   }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal]);
 
-  // Estados para nodos y edges con ReactFlow hooks
-  const [nodes, setNodes, onNodesChange] = useNodesState ? useNodesState(treeToFlow.nodes) : [treeToFlow.nodes, () => {}, () => {}];
-  const [edges, setEdges, onEdgesChange] = useEdgesState ? useEdgesState(treeToFlow.edges) : [treeToFlow.edges, () => {}, () => {}];
+  // Estado para elementos (nodos + edges en react-flow-renderer v10)
+  const [elements, setElements] = useState(treeToFlow);
 
-  // Actualizar nodos y edges cuando cambia el árbol
+  // Actualizar elementos cuando cambia el árbol
   useEffect(() => {
-    if (setNodes) setNodes(treeToFlow.nodes);
-    if (setEdges) setEdges(treeToFlow.edges);
-  }, [treeToFlow.nodes, treeToFlow.edges, setNodes, setEdges]);
+    setElements(treeToFlow);
+  }, [treeToFlow]);
 
   // Handler para crear nuevas conexiones (tipo Miro)
   const onConnect = useCallback((params) => {
-    if (!addEdge) return;
+    console.log('Conectando:', params);
 
-    // Crear nueva conexión
-    const newEdge = {
-      ...params,
-      type: 'smoothstep',
-      animated: true,
-      style: { stroke: '#8b5cf6', strokeWidth: 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed || 'arrowclosed',
-        color: '#8b5cf6',
-      }
-    };
+    setElements((els) => {
+      // Crear nueva conexión
+      const newEdge = {
+        id: `e${params.source}-${params.target}`,
+        source: params.source,
+        target: params.target,
+        type: 'smoothstep',
+        animated: true,
+        arrowHeadType: 'arrowclosed',
+        style: { stroke: '#10b981', strokeWidth: 3 }
+      };
 
-    setEdges((eds) => addEdge(newEdge, eds));
+      return [...els, newEdge];
+    });
+  }, []);
 
-    console.log('Nueva conexión creada:', params);
-  }, [setEdges]);
-
-  // Handler para eliminar edges (conexiones)
-  const onEdgesDelete = useCallback((edgesToDelete) => {
-    console.log('Eliminando conexiones:', edgesToDelete);
+  // Handler para eliminar elementos (conexiones)
+  const onElementsRemove = useCallback((elementsToRemove) => {
+    console.log('Eliminando elementos:', elementsToRemove);
+    setElements((els) => {
+      const idsToRemove = new Set(elementsToRemove.map(el => el.id));
+      return els.filter(el => !idsToRemove.has(el.id));
+    });
   }, []);
 
   // Handler cuando los nodos son arrastrados (drag and drop)
@@ -277,46 +274,60 @@ const FlowView = ({
     console.log('Nodo movido:', node.id, 'a posición:', node.position);
   }, []);
 
+  // Handler para cambios en elementos
+  const onElementClick = useCallback((event, element) => {
+    console.log('Elemento clickeado:', element);
+  }, []);
+
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
       {ReactFlowComponent ? (
         <FlowProvider>
           <ReactFlowComponent
-            nodes={nodes}
-            edges={edges}
+            elements={elements}
             nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onElementsRemove={onElementsRemove}
             onNodeDragStop={onNodeDragStop}
-            onEdgesDelete={onEdgesDelete}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
+            onElementClick={onElementClick}
+            deleteKeyCode={46}
+            snapToGrid={true}
+            snapGrid={[15, 15]}
+            connectionLineType="smoothstep"
+            connectionLineStyle={{ stroke: '#8b5cf6', strokeWidth: 2 }}
+            defaultZoom={1}
             minZoom={0.1}
             maxZoom={2}
             nodesDraggable={true}
             nodesConnectable={true}
             elementsSelectable={true}
             selectNodesOnDrag={false}
-            connectionMode="loose"
-            defaultEdgeOptions={{
-              type: 'smoothstep',
-              animated: true,
-              style: { stroke: '#8b5cf6', strokeWidth: 2 },
-              markerEnd: {
-                type: MarkerType?.ArrowClosed || 'arrowclosed',
-                color: '#8b5cf6',
-              }
-            }}
+            style={{ background: '#fafafa' }}
           >
             {Background && <Background color="#e5e7eb" gap={16}/>}
-            {Controls && <Controls/>}
+            {Controls && <Controls showInteractive={false}/>}
             {MiniMap && (
               <MiniMap
                 nodeColor={() => '#8b5cf6'}
                 maskColor="rgba(0, 0, 0, 0.1)"
               />
             )}
+            <div style={{
+              position: 'absolute',
+              right: '10px',
+              top: '10px',
+              background: 'white',
+              padding: '10px',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              fontSize: '12px',
+              zIndex: 5
+            }}>
+              <strong>💡 Controles:</strong><br/>
+              • Arrastra nodos para moverlos<br/>
+              • Arrastra desde el borde para conectar<br/>
+              • Selecciona y presiona Delete/Supr para eliminar
+            </div>
           </ReactFlowComponent>
         </FlowProvider>
       ) : (
