@@ -434,11 +434,89 @@ const FlowCanvas = ({
     });
   }, [applyEdgeChanges, applyEdgeChangesFallback]);
 
+  const areNodesEquivalent = useCallback((prevNodes, nextNodes) => {
+    if (prevNodes.length !== nextNodes.length) {
+      return false;
+    }
+
+    const prevMap = new Map(prevNodes.map(node => [node.id, node]));
+
+    for (const node of nextNodes) {
+      const prevNode = prevMap.get(node.id);
+      if (!prevNode) {
+        return false;
+      }
+
+      if (prevNode.type !== node.type) {
+        return false;
+      }
+
+      const prevPos = prevNode.position || {};
+      const nextPos = node.position || {};
+      if (prevPos.x !== nextPos.x || prevPos.y !== nextPos.y) {
+        return false;
+      }
+
+      const prevData = prevNode.data || {};
+      const nextData = node.data || {};
+
+      if (prevData.volume !== nextData.volume || prevData.isExpanded !== nextData.isExpanded) {
+        return false;
+      }
+
+      const prevTreeNode = prevData.node || {};
+      const nextTreeNode = nextData.node || {};
+
+      if (prevTreeNode.id !== nextTreeNode.id) {
+        return false;
+      }
+
+      const prevLabel = String(prevTreeNode.name ?? prevTreeNode.keyword ?? '').toLowerCase();
+      const nextLabel = String(nextTreeNode.name ?? nextTreeNode.keyword ?? '').toLowerCase();
+      if (prevLabel !== nextLabel) {
+        return false;
+      }
+
+      if (!!prevTreeNode.isGroup !== !!nextTreeNode.isGroup) {
+        return false;
+      }
+
+      const prevChildrenCount = Array.isArray(prevTreeNode.children) ? prevTreeNode.children.length : 0;
+      const nextChildrenCount = Array.isArray(nextTreeNode.children) ? nextTreeNode.children.length : 0;
+      if (prevChildrenCount !== nextChildrenCount) {
+        return false;
+      }
+    }
+
+    return true;
+  }, []);
+
+  const areEdgesEquivalent = useCallback((prevEdges, nextEdges) => {
+    if (prevEdges.length !== nextEdges.length) {
+      return false;
+    }
+
+    const prevMap = new Map(prevEdges.map(edge => [edge.id, edge]));
+
+    for (const edge of nextEdges) {
+      const prevEdge = prevMap.get(edge.id);
+      if (!prevEdge) {
+        return false;
+      }
+
+      if (prevEdge.source !== edge.source || prevEdge.target !== edge.target) {
+        return false;
+      }
+    }
+
+    return true;
+  }, []);
+
   useEffect(() => {
     setNodes((prevNodes) => {
       const positionMap = new Map(prevNodes.map(n => [n.id, n.position]));
 
-      return treeToFlow.nodes.map(node => {
+      const nextNodes = treeToFlow.nodes.map(node => {
         const previousPosition = positionMap.get(node.id);
         if (previousPosition) {
           return {
@@ -448,12 +526,23 @@ const FlowCanvas = ({
         }
         return node;
       });
+
+      if (areNodesEquivalent(prevNodes, nextNodes)) {
+        return prevNodes;
+      }
+
+      return nextNodes;
     });
-  }, [treeToFlow.nodes, setNodes]);
+  }, [treeToFlow.nodes, setNodes, areNodesEquivalent]);
 
   useEffect(() => {
-    setEdges(treeToFlow.edges);
-  }, [treeToFlow.edges, setEdges]);
+    setEdges((prevEdges) => {
+      if (areEdgesEquivalent(prevEdges, treeToFlow.edges)) {
+        return prevEdges;
+      }
+      return treeToFlow.edges;
+    });
+  }, [treeToFlow.edges, setEdges, areEdgesEquivalent]);
 
   const handleConnect = useCallback((params) => {
     const markerEnd = MarkerType ? {
