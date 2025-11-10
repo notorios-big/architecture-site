@@ -1,5 +1,5 @@
 // src/views/FlowView.jsx
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 const { nodeVolume } = window;
 const {
   IFolderOpen, ITrash, IEdit, ICheck, IChevronR, IChevronD, IEye
@@ -104,6 +104,27 @@ const FlowCanvas = ({
   onMoveNode,
   reactFlowLib
 }) => {
+  const toggleFlowNodeRef = useRef(toggleFlowNode);
+  const renameNodeRef = useRef(renameNode);
+  const deleteNodeRef = useRef(deleteNode);
+  const setKeywordModalRef = useRef(setKeywordModal);
+
+  useEffect(() => {
+    toggleFlowNodeRef.current = toggleFlowNode;
+  }, [toggleFlowNode]);
+
+  useEffect(() => {
+    renameNodeRef.current = renameNode;
+  }, [renameNode]);
+
+  useEffect(() => {
+    deleteNodeRef.current = deleteNode;
+  }, [deleteNode]);
+
+  useEffect(() => {
+    setKeywordModalRef.current = setKeywordModal;
+  }, [setKeywordModal]);
+
   const {
     ReactFlowComponent,
     FlowProvider,
@@ -302,10 +323,10 @@ const FlowCanvas = ({
           node,
           volume: nodeVolume(node),
           isExpanded,
-          onToggle: () => toggleFlowNode(nodeId),
-          onShowKeywords: () => setKeywordModal(node),
-          onRename: renameNode,
-          onDelete: deleteNode
+          onToggle: () => toggleFlowNodeRef.current(nodeId),
+          onShowKeywords: () => setKeywordModalRef.current(node),
+          onRename: (id, value) => renameNodeRef.current(id, value),
+          onDelete: (id) => deleteNodeRef.current(id)
         }
       });
 
@@ -335,7 +356,7 @@ const FlowCanvas = ({
     tree.forEach(node => traverse(node));
 
     return { nodes, edges };
-  }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal, MarkerType]);
+  }, [tree, expandedNodes, MarkerType]);
 
   const [nodes, setNodes] = useState(treeToFlow.nodes);
   const [edges, setEdges] = useState(treeToFlow.edges);
