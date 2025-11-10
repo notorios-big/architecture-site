@@ -5,22 +5,25 @@ const {
   IFolderOpen, ITrash, IEdit, ICheck, IChevronR, IChevronD, IEye
 } = window;
 
-// Verificar que ReactFlow esté disponible
-if (!window.ReactFlow) {
-  console.error('ReactFlow no está disponible');
-}
+// Verificar que ReactFlow esté disponible y obtener todas las dependencias
+const ReactFlowLib = window.ReactFlow || window.ReactFlowRenderer || {};
 
-const { 
-  ReactFlow, 
-  ReactFlowProvider, 
-  Controls, 
-  MiniMap, 
-  Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  MarkerType
-} = window.ReactFlow || {};
+console.log('ReactFlow disponible:', !!ReactFlowLib);
+console.log('Exports de ReactFlow:', Object.keys(ReactFlowLib));
+
+// Obtener componentes y funciones de ReactFlow
+const ReactFlowComponent = ReactFlowLib.default || ReactFlowLib.ReactFlow;
+const ReactFlowProvider = ReactFlowLib.ReactFlowProvider;
+const Controls = ReactFlowLib.Controls;
+const MiniMap = ReactFlowLib.MiniMap;
+const Background = ReactFlowLib.Background;
+const useNodesState = ReactFlowLib.useNodesState;
+const useEdgesState = ReactFlowLib.useEdgesState;
+const addEdge = ReactFlowLib.addEdge;
+const MarkerType = ReactFlowLib.MarkerType || {
+  Arrow: 'arrow',
+  ArrowClosed: 'arrowclosed'
+};
 
 // Si ReactFlowProvider no está disponible, usar un wrapper simple
 const FlowProvider = ReactFlowProvider || (({ children }) => children);
@@ -151,7 +154,7 @@ const FlowView = ({
   };
 
   const nodeTypes = useMemo(() => {
-    if (!ReactFlow) return {};
+    if (!ReactFlowComponent) return {};
     return { custom: CustomNode };
   }, []);
 
@@ -246,7 +249,7 @@ const FlowView = ({
   // Handler para crear nuevas conexiones (tipo Miro)
   const onConnect = useCallback((params) => {
     if (!addEdge) return;
-    
+
     // Crear nueva conexión
     const newEdge = {
       ...params,
@@ -254,33 +257,47 @@ const FlowView = ({
       animated: true,
       style: { stroke: '#8b5cf6', strokeWidth: 2 },
       markerEnd: {
-        type: MarkerType.ArrowClosed,
+        type: MarkerType.ArrowClosed || 'arrowclosed',
         color: '#8b5cf6',
       }
     };
-    
+
     setEdges((eds) => addEdge(newEdge, eds));
-    
-    // Aquí podrías llamar a una función para actualizar el árbol real
-    if (onMoveNode) {
-      onMoveNode(params.source, params.target);
-    }
-  }, [setEdges, onMoveNode]);
+
+    console.log('Nueva conexión creada:', params);
+  }, [setEdges]);
+
+  // Handler para eliminar edges (conexiones)
+  const onEdgesDelete = useCallback((edgesToDelete) => {
+    console.log('Eliminando conexiones:', edgesToDelete);
+  }, []);
+
+  // Handler cuando los nodos son arrastrados (drag and drop)
+  const onNodeDragStop = useCallback((event, node) => {
+    console.log('Nodo movido:', node.id, 'a posición:', node.position);
+  }, []);
 
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
-      {ReactFlow ? (
+      {ReactFlowComponent ? (
         <FlowProvider>
-          <ReactFlow
+          <ReactFlowComponent
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeDragStop={onNodeDragStop}
+            onEdgesDelete={onEdgesDelete}
             fitView
+            fitViewOptions={{ padding: 0.2 }}
             minZoom={0.1}
             maxZoom={2}
+            nodesDraggable={true}
+            nodesConnectable={true}
+            elementsSelectable={true}
+            selectNodesOnDrag={false}
             connectionMode="loose"
             defaultEdgeOptions={{
               type: 'smoothstep',
@@ -292,19 +309,24 @@ const FlowView = ({
               }
             }}
           >
-            <Background color="#e5e7eb" gap={16}/>
-            <Controls/>
-            <MiniMap
-              nodeColor={() => '#8b5cf6'}
-              maskColor="rgba(0, 0, 0, 0.1)"
-            />
-          </ReactFlow>
+            {Background && <Background color="#e5e7eb" gap={16}/>}
+            {Controls && <Controls/>}
+            {MiniMap && (
+              <MiniMap
+                nodeColor={() => '#8b5cf6'}
+                maskColor="rgba(0, 0, 0, 0.1)"
+              />
+            )}
+          </ReactFlowComponent>
         </FlowProvider>
       ) : (
         <div className="flex items-center justify-center h-full text-gray-600">
           <div className="text-center">
             <p className="text-lg font-semibold mb-2">ReactFlow no está disponible</p>
             <p className="text-sm">Por favor, recarga la página</p>
+            <p className="text-xs mt-4 text-gray-500">
+              Verifica la consola para más detalles
+            </p>
           </div>
         </div>
       )}
