@@ -33,7 +33,8 @@ const FlowCanvas = ({
   reactFlowLib
 }) => {
   const {
-    ReactFlow,
+    ReactFlow: ReactFlowFromLib,
+    default: DefaultReactFlow,
     ReactFlowProvider,
     Controls,
     MiniMap,
@@ -46,7 +47,24 @@ const FlowCanvas = ({
     Position
   } = reactFlowLib;
 
+  const ReactFlowComponent = ReactFlowFromLib || DefaultReactFlow;
   const FlowProvider = ReactFlowProvider || (({ children }) => children);
+  const ControlsComponent = Controls || (() => null);
+  const MiniMapComponent = MiniMap || (() => null);
+  const BackgroundComponent = Background || (() => null);
+
+  if (!ReactFlowComponent) {
+    console.error('ReactFlow no está disponible en la librería cargada', reactFlowLib);
+    return (
+      <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex items-center justify-center" style={{ height: 'calc(100vh - 280px)' }}>
+        <div className="text-center text-gray-600 p-10">
+          <p className="text-lg font-semibold mb-2">Error al inicializar React Flow</p>
+          <p className="text-sm">No pudimos encontrar el componente ReactFlow en la librería cargada desde la CDN.</p>
+          <p className="text-xs mt-3">Revisa que la versión de React Flow sea compatible o intenta recargar la página.</p>
+        </div>
+      </div>
+    );
+  }
 
   const CustomNode = useCallback(({ data, selected }) => {
     const { node, volume, isExpanded, onToggle, onShowKeywords, onRename, onDelete } = data;
@@ -396,7 +414,7 @@ const FlowCanvas = ({
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
       <FlowProvider>
-        <ReactFlow
+        <ReactFlowComponent
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -423,14 +441,14 @@ const FlowCanvas = ({
             } : undefined
           }}
         >
-          <Background color="#e5e7eb" gap={16} variant="dots"/>
-          <Controls position="top-right"/>
-          <MiniMap
+          <BackgroundComponent color="#e5e7eb" gap={16} variant="dots"/>
+          <ControlsComponent position="top-right"/>
+          <MiniMapComponent
             nodeColor={() => '#8b5cf6'}
             nodeStrokeWidth={2}
             maskColor="rgba(0, 0, 0, 0.1)"
           />
-        </ReactFlow>
+        </ReactFlowComponent>
       </FlowProvider>
     </div>
   );
