@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Organizador de Keywords</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reactflow@11.10.1/dist/umd/index.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.1/dist/style.css">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  
+  <!-- Cargar módulos en orden -->
+  <script type="text/babel" src="../src/lib/storage.js"></script>
+  <script type="text/babel" src="../src/lib/icons.js"></script>
+  <script type="text/babel" src="../src/lib/csv.js"></script>
+  <script type="text/babel" src="../src/lib/vectors.js"></script>
+  <script type="text/babel" src="../src/lib/tree-helpers.js"></script>
+  <script type="text/babel" src="../src/lib/tree.js"></script>
+  <script type="text/babel" src="../src/lib/api.js"></script>
+  <script type="text/babel" src="../src/store.js"></script>
+  <script type="text/babel" src="../src/components/KeywordModal.jsx"></script>
+  <script type="text/babel" src="../src/components/Toolbar.jsx"></script>
+  <script type="text/babel" src="../src/views/TreeView.jsx"></script>
+  <script type="text/babel" src="../src/views/FlowView.jsx"></script>
+  <script type="text/babel" src="../src/App.jsx"></script>
+  
+  <!-- Renderizar aplicación -->
+  <script type="text/babel">
+    // Usar createRoot para React 18 con manejo de errores
+    try {
+      console.log('Iniciando renderizado de la aplicación...');
+      console.log('React disponible:', typeof React !== 'undefined');
+      console.log('ReactDOM disponible:', typeof ReactDOM !== 'undefined');
+      console.log('ReactFlow disponible:', typeof window.ReactFlow !== 'undefined');
+      
+      const rootElement = document.getElementById('root');
+      if (!rootElement) {
+        throw new Error('No se encontró el elemento root');
+      }
+
+      if (ReactDOM.createRoot) {
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(React.createElement(window.App));
+        console.log('Aplicación renderizada con createRoot');
+      } else {
+        // Fallback para versiones anteriores de React
+        ReactDOM.render(React.createElement(window.App), rootElement);
+        console.log('Aplicación renderizada con render');
+      }
+    } catch (error) {
+      console.error('Error al renderizar la aplicación:', error);
+      console.error('Stack trace:', error.stack);
+      const rootEl = document.getElementById('root');
+      if (rootEl) {
+        rootEl.innerHTML = `
+          <div style="padding: 40px; text-align: center; color: #dc2626;">
+            <h2 style="font-size: 24px; margin-bottom: 16px;">⚠️ Error al renderizar</h2>
+            <p style="margin-bottom: 8px;">${error.message}</p>
+            <p style="font-size: 12px; color: #9ca3af; margin-top: 16px;">Revisa la consola para más detalles</p>
+            <pre style="margin-top: 16px; text-align: left; background: #f3f4f6; padding: 16px; border-radius: 8px; font-size: 12px; overflow: auto;">${error.stack}</pre>
+          </div>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
