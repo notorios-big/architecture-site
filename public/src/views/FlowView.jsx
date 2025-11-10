@@ -5,58 +5,84 @@ const {
   IFolderOpen, ITrash, IEdit, ICheck, IChevronR, IChevronD, IEye
 } = window;
 
-// Verificar que ReactFlow esté disponible
-if (!window.ReactFlow) {
-  console.error('ReactFlow no está disponible');
-}
+const waitForReactFlow = (() => {
+  let warned = false;
 
-const { 
-  ReactFlow, 
-  ReactFlowProvider, 
-  Controls, 
-  MiniMap, 
-  Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  MarkerType
-} = window.ReactFlow || {};
+  return () => {
+    if (window.ReactFlow) {
+      return window.ReactFlow;
+    }
 
-// Si ReactFlowProvider no está disponible, usar un wrapper simple
-const FlowProvider = ReactFlowProvider || (({ children }) => children);
+    if (!warned) {
+      console.warn('ReactFlow todavía no está disponible, reintentando...');
+      warned = true;
+    }
 
-const FlowView = ({
+    return null;
+  };
+})();
+
+const FlowCanvas = ({
   tree,
   expandedNodes,
   toggleFlowNode,
   renameNode,
   deleteNode,
   setKeywordModal,
-  onMoveNode // Nueva prop para mover nodos entre grupos
+  onMoveNode,
+  reactFlowLib
 }) => {
-  const CustomNode = ({ data }) => {
+  const {
+    ReactFlow,
+    ReactFlowProvider,
+    Controls,
+    MiniMap,
+    Background,
+    useNodesState,
+    useEdgesState,
+    addEdge,
+    MarkerType,
+    Handle,
+    Position
+  } = reactFlowLib;
+
+  const FlowProvider = ReactFlowProvider || (({ children }) => children);
+
+  const CustomNode = useCallback(({ data, selected }) => {
     const { node, volume, isExpanded, onToggle, onShowKeywords, onRename, onDelete } = data;
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(node.name || '');
 
-    // Sincronizar editText cuando el nodo cambia
     useEffect(() => {
       setEditText(node.name || '');
     }, [node.name]);
 
-    // Solo contar grupos hijos, no keywords
-    const childGroups = node.isGroup && node.children 
-      ? node.children.filter(c => c.isGroup) 
+    const childGroups = node.isGroup && node.children
+      ? node.children.filter(c => c.isGroup)
       : [];
     const hasChildGroups = childGroups.length > 0;
-    
-    // Contar todas las keywords (directas + en subgrupos)
-    const keywordCount = node.isGroup && node.children 
-      ? node.children.filter(c => !c.isGroup).length 
+
+    const keywordCount = node.isGroup && node.children
+      ? node.children.filter(c => !c.isGroup).length
       : 0;
 
     return (
-      <div className="custom-node">
+      <div className={`custom-node ${selected ? 'custom-node-selected' : ''}`}>
+        {Handle && Position && (
+          <>
+            <Handle
+              type="target"
+              position={Position.Left}
+              className="custom-handle target"
+            />
+            <Handle
+              type="source"
+              position={Position.Right}
+              className="custom-handle source"
+            />
+          </>
+        )}
+
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <IFolderOpen size={18} className="text-white flex-shrink-0"/>
@@ -99,7 +125,6 @@ const FlowView = ({
           </div>
 
           <div className="flex gap-1">
-            {/* Botón Contraer/Expandir - solo si tiene grupos hijos */}
             {hasChildGroups && (
               <button
                 onClick={onToggle}
@@ -109,8 +134,7 @@ const FlowView = ({
                 {isExpanded ? 'Contraer' : 'Expandir'}
               </button>
             )}
-            
-            {/* Botón Ver KWs - solo si tiene keywords */}
+
             {node.isGroup && keywordCount > 0 && (
               <button
                 onClick={onShowKeywords}
@@ -120,8 +144,7 @@ const FlowView = ({
                 Ver KWs
               </button>
             )}
-            
-            {/* Botones de edición */}
+
             {node.isGroup && !isEditing && (
               <button
                 onClick={() => {
@@ -148,49 +171,43 @@ const FlowView = ({
         </div>
       </div>
     );
-  };
+  }, [Handle, Position]);
 
-  const nodeTypes = useMemo(() => {
-    if (!ReactFlow) return {};
-    return { custom: CustomNode };
-  }, []);
+  const nodeTypes = useMemo(() => ({ custom: CustomNode }), [CustomNode]);
 
-  // Generar el grafo de flujo
   const treeToFlow = useMemo(() => {
     const nodes = [];
     const edges = [];
-    
-    // LAYOUT HORIZONTAL (como Drawflow)
-    const HORIZONTAL_SPACING = 400; // Espaciado entre niveles
-    const VERTICAL_SPACING = 150;   // Espaciado entre hermanos
-    
-    // Calcular posiciones para cada nivel
-    const levelPositions = new Map(); // nivel -> [yPositions usadas]
-    
+
+    const HORIZONTAL_SPACING = 380;
+    const VERTICAL_SPACING = 160;
+
+    const levelPositions = new Map();
+
     const traverse = (node, level = 0, parentId = null) => {
       if (!node) return;
 
       const nodeId = node.id;
       const isExpanded = expandedNodes.has(nodeId);
 
-      // Inicializar array de posiciones para este nivel
       if (!levelPositions.has(level)) {
         levelPositions.set(level, []);
       }
-      
-      // Calcular posición Y para este nodo
+
       const usedPositions = levelPositions.get(level);
       const yPosition = usedPositions.length * VERTICAL_SPACING;
       usedPositions.push(yPosition);
 
-      // Crear nodo con posición horizontal
       nodes.push({
         id: nodeId,
         type: 'custom',
-        position: { 
-          x: level * HORIZONTAL_SPACING, 
-          y: yPosition 
+        position: {
+          x: level * HORIZONTAL_SPACING,
+          y: yPosition
         },
+        draggable: true,
+        selectable: true,
+        connectable: true,
         data: {
           node,
           volume: nodeVolume(node),
@@ -202,7 +219,6 @@ const FlowView = ({
         }
       });
 
-      // Crear edge si tiene padre
       if (parentId) {
         edges.push({
           id: `${parentId}-${nodeId}`,
@@ -211,14 +227,13 @@ const FlowView = ({
           type: 'smoothstep',
           animated: true,
           style: { stroke: '#8b5cf6', strokeWidth: 2 },
-          markerEnd: {
+          markerEnd: MarkerType ? {
             type: MarkerType.ArrowClosed,
-            color: '#8b5cf6',
-          }
+            color: '#8b5cf6'
+          } : undefined
         });
       }
 
-      // SOLO expandir grupos hijos si está expandido
       if (isExpanded && node.isGroup && node.children) {
         const childGroups = node.children.filter(c => c.isGroup);
         childGroups.forEach(child => {
@@ -227,89 +242,162 @@ const FlowView = ({
       }
     };
 
-    // Procesar cada árbol raíz
     tree.forEach(node => traverse(node));
 
     return { nodes, edges };
-  }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal]);
+  }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal, MarkerType]);
 
-  // Estados para nodos y edges con ReactFlow hooks
-  const [nodes, setNodes, onNodesChange] = useNodesState ? useNodesState(treeToFlow.nodes) : [treeToFlow.nodes, () => {}, () => {}];
-  const [edges, setEdges, onEdgesChange] = useEdgesState ? useEdgesState(treeToFlow.edges) : [treeToFlow.edges, () => {}, () => {}];
+  const [nodes, setNodes, onNodesChange] = useNodesState(treeToFlow.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(treeToFlow.edges);
 
-  // Actualizar nodos y edges cuando cambia el árbol
   useEffect(() => {
-    if (setNodes) setNodes(treeToFlow.nodes);
-    if (setEdges) setEdges(treeToFlow.edges);
-  }, [treeToFlow.nodes, treeToFlow.edges, setNodes, setEdges]);
+    setNodes((prevNodes) => {
+      const positionMap = new Map(prevNodes.map(n => [n.id, n.position]));
 
-  // Handler para crear nuevas conexiones (tipo Miro)
-  const onConnect = useCallback((params) => {
-    if (!addEdge) return;
-    
-    // Crear nueva conexión
+      return treeToFlow.nodes.map(node => {
+        const previousPosition = positionMap.get(node.id);
+        if (previousPosition) {
+          return {
+            ...node,
+            position: previousPosition
+          };
+        }
+        return node;
+      });
+    });
+  }, [treeToFlow.nodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(treeToFlow.edges);
+  }, [treeToFlow.edges, setEdges]);
+
+  const handleConnect = useCallback((params) => {
+    const markerEnd = MarkerType ? {
+      type: MarkerType.ArrowClosed,
+      color: '#8b5cf6'
+    } : undefined;
+
     const newEdge = {
       ...params,
       type: 'smoothstep',
       animated: true,
       style: { stroke: '#8b5cf6', strokeWidth: 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: '#8b5cf6',
-      }
+      markerEnd
     };
-    
-    setEdges((eds) => addEdge(newEdge, eds));
-    
-    // Aquí podrías llamar a una función para actualizar el árbol real
+
+    setEdges((eds) => (addEdge ? addEdge(newEdge, eds) : [...eds, newEdge]));
+
     if (onMoveNode) {
       onMoveNode(params.source, params.target);
     }
-  }, [setEdges, onMoveNode]);
+  }, [addEdge, setEdges, MarkerType, onMoveNode]);
+
+  const handleEdgeDoubleClick = useCallback((_, edge) => {
+    setEdges((eds) => eds.filter(e => e.id !== edge.id));
+  }, [setEdges]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        setEdges((eds) => eds.filter(edge => !edge.selected));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setEdges]);
 
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
-      {ReactFlow ? (
-        <FlowProvider>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            fitView
-            minZoom={0.1}
-            maxZoom={2}
-            connectionMode="loose"
-            defaultEdgeOptions={{
-              type: 'smoothstep',
-              animated: true,
-              style: { stroke: '#8b5cf6', strokeWidth: 2 },
-              markerEnd: {
-                type: MarkerType?.ArrowClosed || 'arrowclosed',
-                color: '#8b5cf6',
-              }
-            }}
-          >
-            <Background color="#e5e7eb" gap={16}/>
-            <Controls/>
-            <MiniMap
-              nodeColor={() => '#8b5cf6'}
-              maskColor="rgba(0, 0, 0, 0.1)"
-            />
-          </ReactFlow>
-        </FlowProvider>
-      ) : (
-        <div className="flex items-center justify-center h-full text-gray-600">
-          <div className="text-center">
-            <p className="text-lg font-semibold mb-2">ReactFlow no está disponible</p>
-            <p className="text-sm">Por favor, recarga la página</p>
-          </div>
-        </div>
-      )}
+      <FlowProvider>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={handleConnect}
+          onEdgeDoubleClick={handleEdgeDoubleClick}
+          minZoom={0.1}
+          maxZoom={2}
+          snapToGrid
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          connectionMode="loose"
+          panOnScroll
+          elementsSelectable
+          selectionOnDrag
+          defaultEdgeOptions={{
+            type: 'smoothstep',
+            animated: true,
+            style: { stroke: '#8b5cf6', strokeWidth: 2 },
+            markerEnd: MarkerType ? {
+              type: MarkerType.ArrowClosed,
+              color: '#8b5cf6'
+            } : undefined
+          }}
+        >
+          <Background color="#e5e7eb" gap={16} variant="dots"/>
+          <Controls position="top-right"/>
+          <MiniMap
+            nodeColor={() => '#8b5cf6'}
+            nodeStrokeWidth={2}
+            maskColor="rgba(0, 0, 0, 0.1)"
+          />
+        </ReactFlow>
+      </FlowProvider>
     </div>
   );
+};
+
+const FlowView = (props) => {
+  const [reactFlowLib, setReactFlowLib] = useState(() => waitForReactFlow());
+  const [triedLoading, setTriedLoading] = useState(!!reactFlowLib);
+
+  useEffect(() => {
+    if (reactFlowLib) {
+      return;
+    }
+
+    let mounted = true;
+    let attempts = 0;
+
+    const checkLibrary = () => {
+      if (!mounted) return;
+      const lib = waitForReactFlow();
+      attempts += 1;
+
+      if (lib) {
+        setReactFlowLib(lib);
+      } else if (attempts < 50) {
+        requestAnimationFrame(checkLibrary);
+      } else {
+        setTriedLoading(true);
+      }
+    };
+
+    checkLibrary();
+
+    return () => {
+      mounted = false;
+    };
+  }, [reactFlowLib]);
+
+  if (!reactFlowLib) {
+    return (
+      <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex items-center justify-center" style={{ height: 'calc(100vh - 280px)' }}>
+        <div className="text-center text-gray-600 p-10">
+          <p className="text-lg font-semibold mb-2">Cargando motor de flujo…</p>
+          <p className="text-sm">Estamos preparando las herramientas de Drawflow.</p>
+          {triedLoading && (
+            <p className="text-xs mt-3">Si el mensaje persiste, revisa tu conexión a la CDN de ReactFlow.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return <FlowCanvas {...props} reactFlowLib={reactFlowLib}/>;
 };
 
 window.FlowView = FlowView;
