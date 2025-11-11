@@ -1,24 +1,20 @@
 // src/views/TreeView.jsx
 const { nodeVolume } = window;
 const { IChevronR, IChevronD, IFolderOpen, IEdit, ICheck, IX, ITrash } = window;
+const { useState, useCallback, useMemo, useRef, memo } = React;
 
-// Throttle helper para optimizar rendimiento
-const throttle = (func, delay) => {
-  let lastCall = 0;
-  let timeoutId = null;
+// Throttle optimizado con requestAnimationFrame para smoothness
+const throttleRAF = (func) => {
+  let rafId = null;
+  let lastArgs = null;
+
   return function(...args) {
-    const now = Date.now();
-    const timeSinceLastCall = now - lastCall;
-
-    if (timeSinceLastCall >= delay) {
-      lastCall = now;
-      func.apply(this, args);
-    } else {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        lastCall = Date.now();
-        func.apply(this, args);
-      }, delay - timeSinceLastCall);
+    lastArgs = args;
+    if (rafId === null) {
+      rafId = requestAnimationFrame(() => {
+        func.apply(this, lastArgs);
+        rafId = null;
+      });
     }
   };
 };
@@ -40,14 +36,50 @@ const TreeView = ({
   deleteNode,
   onDrop
 }) => {
-  // Throttled version de setDragOver para mejor rendimiento
-  const throttledSetDragOver = React.useMemo(
-    () => throttle((nodeId) => setDragOver(nodeId), 50),
-    [setDragOver]
+  // Usar refs para evitar re-renders durante el drag
+  const dragOverRef = useRef(null);
+  const dragElementsRef = useRef(new Map());
+
+  // Actualizar visualmente sin causar re-render
+  const updateDragOverVisual = useCallback((nodeId) => {
+    // Remover clase del anterior
+    if (dragOverRef.current && dragOverRef.current !== nodeId) {
+      const prevElement = dragElementsRef.current.get(dragOverRef.current);
+      if (prevElement) {
+        prevElement.classList.remove('drag-over-active');
+      }
+    }
+
+    // Agregar clase al nuevo
+    if (nodeId) {
+      const element = dragElementsRef.current.get(nodeId);
+      if (element) {
+        element.classList.add('drag-over-active');
+      }
+    }
+
+    dragOverRef.current = nodeId;
+  }, []);
+
+  const clearDragOverVisual = useCallback(() => {
+    if (dragOverRef.current) {
+      const element = dragElementsRef.current.get(dragOverRef.current);
+      if (element) {
+        element.classList.remove('drag-over-active');
+      }
+      dragOverRef.current = null;
+    }
+  }, []);
+
+  // Throttled con RAF para máximo smoothness
+  const throttledUpdateDragOver = useMemo(
+    () => throttleRAF(updateDragOverVisual),
+    [updateDragOverVisual]
   );
 
-  const Node = ({ node, depth = 0, parentCollapsed = false }) => {
+  const Node = memo(({ node, depth = 0, parentCollapsed = false }) => {
     if (parentCollapsed) return null;
+
     const isGroup = !!node.isGroup;
     const total = nodeVolume(node);
     const isEditing = editingId === node.id;
@@ -55,13 +87,19 @@ const TreeView = ({
     const isBeingDragged = dragging && dragging.id === node.id;
     const isMultiDrag = dragging && selectedNodes && selectedNodes.has(dragging.id) && selectedNodes.size > 1;
 
-    // Calcular si este grupo está recibiendo un drop
-    const isDragTarget = dragOver === node.id;
     const canDrop = isGroup && dragging && dragging.id !== node.id && !isBeingDragged;
 
+    // Ref callback para registrar el elemento
+    const cardRef = useCallback((element) => {
+      if (element && isGroup) {
+        dragElementsRef.current.set(node.id, element);
+      }
+    }, [node.id, isGroup]);
+
     return (
-      <div key={node.id} className="mb-3 animate-fade-in" style={{ marginLeft: depth ? '32px' : '0' }}>
+      <div key={node.id} className="mb-3" style={{ marginLeft: depth ? '32px' : '0' }}>
         <div
+          ref={cardRef}
           draggable={!isEditing}
           onDragStart={(e) => {
             if (isEditing) {
@@ -70,39 +108,32 @@ const TreeView = ({
             }
             setDragging(node);
             e.dataTransfer.effectAllowed = 'move';
-            // Añadir feedback visual
             e.dataTransfer.setData('text/plain', node.id);
           }}
           onDragEnd={() => {
             setDragging(null);
-            setDragOver(null);
+            clearDragOverVisual();
           }}
           onDragOver={(e) => {
+            if (!canDrop) return;
             e.preventDefault();
             e.stopPropagation();
-            if (canDrop) {
-              throttledSetDragOver(node.id);
-            }
+            throttledUpdateDragOver(node.id);
           }}
           onDragLeave={(e) => {
             e.stopPropagation();
-            // Solo limpiar si realmente salimos del elemento
-            if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget)) {
-              setDragOver(null);
-            }
           }}
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            setDragOver(null);
+            clearDragOverVisual();
             if (dragging && canDrop) {
               onDrop(node, dragging);
             }
           }}
-          className={`node-card p-4 rounded-xl transition-all
+          className={`node-card p-4 rounded-xl transition-smooth
             ${isGroup ? 'bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200' : 'glass border-2 border-gray-200'}
-            ${isDragTarget ? 'drag-over !border-indigo-500 !bg-indigo-100 shadow-lg scale-[1.02]' : ''}
-            ${isBeingDragged ? 'opacity-50 cursor-grabbing' : 'cursor-move'}
+            ${isBeingDragged ? 'opacity-40 scale-95' : ''}
             ${isSelected ? '!border-purple-500 !bg-purple-50 ring-2 ring-purple-300' : ''}`}
         >
           <div className="flex items-center gap-3">
@@ -198,26 +229,17 @@ const TreeView = ({
         {/* Área de drop mejorada para grupos abiertos */}
         {isGroup && node.children && !node.collapsed && (
           <div
-            className={`mt-3 ml-4 border-l-2 border-indigo-200 pl-2 transition-all
-              ${canDrop && !isDragTarget ? 'drop-zone-expanded' : ''}`}
+            className="mt-3 ml-4 border-l-2 border-indigo-200 pl-2"
             onDragOver={(e) => {
+              if (!canDrop) return;
               e.preventDefault();
               e.stopPropagation();
-              // Permitir drop en el área de children del grupo abierto
-              if (canDrop) {
-                throttledSetDragOver(node.id);
-              }
-            }}
-            onDragLeave={(e) => {
-              e.stopPropagation();
-              if (!e.currentTarget.contains(e.relatedTarget)) {
-                setDragOver(null);
-              }
+              throttledUpdateDragOver(node.id);
             }}
             onDrop={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setDragOver(null);
+              clearDragOverVisual();
               if (dragging && canDrop) {
                 onDrop(node, dragging);
               }
@@ -228,10 +250,21 @@ const TreeView = ({
         )}
       </div>
     );
-  };
+  }, (prevProps, nextProps) => {
+    // Custom comparison para evitar re-renders innecesarios
+    return (
+      prevProps.node.id === nextProps.node.id &&
+      prevProps.node.name === nextProps.node.name &&
+      prevProps.node.keyword === nextProps.node.keyword &&
+      prevProps.node.collapsed === nextProps.node.collapsed &&
+      prevProps.depth === nextProps.depth &&
+      prevProps.parentCollapsed === nextProps.parentCollapsed &&
+      JSON.stringify(prevProps.node.children?.map(c => c.id)) === JSON.stringify(nextProps.node.children?.map(c => c.id))
+    );
+  });
 
   return (
-    <div className="glass rounded-2xl p-6 shadow-2xl overflow-auto max-h-[calc(100vh-280px)] scrollbar-thin animate-fade-in">
+    <div className="glass rounded-2xl p-6 shadow-2xl overflow-auto max-h-[calc(100vh-280px)] scrollbar-thin">
       {selectedNodes && selectedNodes.size > 0 && (
         <div className="mb-4 p-3 bg-purple-50 border-2 border-purple-300 rounded-lg flex items-center justify-between">
           <span className="text-purple-800 font-medium">
@@ -239,8 +272,6 @@ const TreeView = ({
           </span>
           <button
             onClick={() => {
-              // Limpiar todas las selecciones
-              const emptySet = new Set();
               selectedNodes.forEach(id => toggleNodeSelection(id, false));
             }}
             className="text-purple-600 hover:text-purple-800 text-sm font-medium underline"
