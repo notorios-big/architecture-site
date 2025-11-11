@@ -207,3 +207,31 @@ input[type="range"] {
   box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
 }
 
+/* Mejoras de rendimiento y UX para drag & drop */
+.drop-zone-expanded {
+  position: relative;
+  min-height: 40px;
+}
+
+.drop-zone-expanded::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border: 2px dashed rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  pointer-events: none;
+  transition: all 0.2s;
+}
+
+.node-card {
+  will-change: transform, box-shadow;
+  cursor: grab;
+}
+
+.node-card:active {
+  cursor: grabbing !important;
+}
+
