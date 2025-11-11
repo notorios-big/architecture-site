@@ -178,7 +178,7 @@ IMPORTANTE:
 - Si un grupo está bien, no lo incluyas en cleanedGroups`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-haiku-4-5',
       max_tokens: 8192,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }]
