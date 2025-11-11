@@ -224,6 +224,18 @@ const FlowView = ({
     if (!isDrawflowReady || !containerRef.current) return;
 
     console.log('Inicializando Drawflow...');
+    console.log('expandedNodes:', Array.from(expandedNodes));
+
+    // Limpiar editor anterior si existe
+    if (editorRef.current) {
+      try {
+        console.log('Limpiando editor anterior...');
+        editorRef.current.clear();
+        editorRef.current = null;
+      } catch (e) {
+        console.error('Error al limpiar editor:', e);
+      }
+    }
 
     // Limpiar contenedor
     containerRef.current.innerHTML = '';
@@ -256,6 +268,8 @@ const FlowView = ({
 
         const isExpanded = expandedNodes.has(node.id);
 
+        console.log(`Procesando nodo: ${node.name || node.keyword}, Level: ${level}, Parent: ${parentDrawflowId}, Expanded: ${isExpanded}`);
+
         // Calcular posición
         if (!levelPositions.has(level)) {
           levelPositions.set(level, []);
@@ -274,7 +288,7 @@ const FlowView = ({
         const currentDrawflowId = drawflowNodeId++;
         editor.addNode(
           `node-${node.id}`,  // name
-          0,                   // inputs
+          1,                   // inputs - CAMBIADO: 1 input para poder conectar
           1,                   // outputs
           xPosition,
           yPosition,
@@ -285,7 +299,7 @@ const FlowView = ({
 
         nodeIdMap.set(node.id, currentDrawflowId);
 
-        console.log(`Nodo agregado: ${node.name || node.keyword} (Drawflow ID: ${currentDrawflowId})`);
+        console.log(`  → Nodo agregado con Drawflow ID: ${currentDrawflowId} en posición (${xPosition}, ${yPosition})`);
 
         // Crear conexión con el padre
         if (parentDrawflowId !== null) {
@@ -295,15 +309,22 @@ const FlowView = ({
             'output_1',            // output_class
             'input_1'              // input_class
           );
-          console.log(`Conexión creada: ${parentDrawflowId} -> ${currentDrawflowId}`);
+          console.log(`  → Conexión creada: ${parentDrawflowId} -> ${currentDrawflowId}`);
         }
 
         // Procesar hijos si está expandido
-        if (isExpanded && node.isGroup && node.children) {
+        if (node.isGroup && node.children) {
           const childGroups = node.children.filter(c => c.isGroup);
-          childGroups.forEach(child => {
-            traverse(child, level + 1, currentDrawflowId);
-          });
+          console.log(`  → Tiene ${childGroups.length} grupos hijos`);
+
+          if (isExpanded && childGroups.length > 0) {
+            console.log(`  → Procesando hijos porque está expandido`);
+            childGroups.forEach(child => {
+              traverse(child, level + 1, currentDrawflowId);
+            });
+          } else if (!isExpanded && childGroups.length > 0) {
+            console.log(`  → NO procesando hijos porque NO está expandido`);
+          }
         }
       };
 
