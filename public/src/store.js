@@ -85,20 +85,51 @@ const useStore = () => {
       const embeddings = await window.getEmbeddingsBatch(texts);
       const withEmbeds = keywords.map((kw, i) => ({ ...kw, embedding: embeddings[i] }));
 
+      // 1. Calcular matriz de similitud completa
+      const similarities = [];
+      for (let i = 0; i < withEmbeds.length; i++) {
+        similarities[i] = [];
+        for (let j = 0; j < withEmbeds.length; j++) {
+          similarities[i][j] = window.cosine(withEmbeds[i].embedding, withEmbeds[j].embedding);
+        }
+      }
+
+      // 2. Calcular centralidad (degree) de cada keyword
+      // Cuántas conexiones >= threshold tiene cada una
+      const degrees = withEmbeds.map((kw, i) => {
+        const degree = similarities[i].filter(s => s >= threshold).length - 1; // -1 para no contar consigo misma
+        return { index: i, degree };
+      });
+
+      // 3. Ordenar por centralidad descendente (más conectadas primero)
+      degrees.sort((a, b) => b.degree - a.degree);
+
+      // 4. Aplicar algoritmo greedy-clique con orden por centralidad
       const groups = [];
       const used = new Set();
 
-      for (let i = 0; i < withEmbeds.length; i++) {
+      for (const { index: i } of degrees) {
         if (used.has(i)) continue;
 
         const base = withEmbeds[i];
         const g = [base];
         used.add(i);
 
-        for (let j = 0; j < withEmbeds.length; j++) {
-          if (i === j || used.has(j)) continue;
-          const s = window.cosine(base.embedding, withEmbeds[j].embedding);
-          if (s >= threshold) {
+        // Evaluar candidatos en orden de centralidad
+        for (const { index: j } of degrees) {
+          if (used.has(j)) continue;
+
+          // Verificar que j forme un clique completo con todos los miembros de g
+          let isClique = true;
+          for (const member of g) {
+            const memberIdx = withEmbeds.indexOf(member);
+            if (similarities[memberIdx][j] < threshold) {
+              isClique = false;
+              break;
+            }
+          }
+
+          if (isClique) {
             g.push(withEmbeds[j]);
             used.add(j);
           }
