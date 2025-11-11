@@ -190,6 +190,7 @@ function App(){
   const [dragOver,setDragOver] = useState(null);
   const [editingId,setEditingId] = useState(null);
   const [editingText,setEditingText] = useState('');
+  const [selectedNodes, setSelectedNodes] = useState(new Set());
 
   const [activeView, setActiveView] = useState('tree');
   const [expandedNodes, setExpandedNodes] = useState(new Set());
@@ -412,28 +413,57 @@ function App(){
     return walk(nodes);
   };
 
+  const toggleNodeSelection = useCallback((nodeId, isGroup) => {
+    if (isGroup) return; // No permitir seleccionar grupos
+    setSelectedNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
+
   const onDrop = useCallback((target, dragged)=>{
     if (!target.isGroup) return;
     if (target.id===dragged.id) return;
-    
+
+    // Si hay nodos seleccionados y el nodo arrastrado está seleccionado, mover todos los seleccionados
+    const nodesToMove = selectedNodes.has(dragged.id) && selectedNodes.size > 0
+      ? Array.from(selectedNodes)
+      : [dragged.id];
+
     setTree(prevTree => {
-      const draggedTreeNode = findNode(dragged.id, prevTree);
-      if (!draggedTreeNode) return prevTree;
-      if (isDescendant(target.id, draggedTreeNode)) return prevTree;
-      if (isDescendant(draggedTreeNode.id, target)) return prevTree;
-      
-      const removed = removeNode(draggedTreeNode.id, prevTree);
-      const updated = insertInto(target.id, draggedTreeNode, removed.arr);
-      
-      volumeCacheRef.current.delete(target.id);
-      volumeCacheRef.current.delete(draggedTreeNode.id);
-      
-      const sortedTree = sortOnlyAffectedNode(updated, target.id);
+      let currentTree = prevTree;
+
+      for (const nodeId of nodesToMove) {
+        const draggedTreeNode = findNode(nodeId, currentTree);
+        if (!draggedTreeNode) continue;
+        if (isDescendant(target.id, draggedTreeNode)) continue;
+        if (isDescendant(draggedTreeNode.id, target)) continue;
+        if (target.id === nodeId) continue;
+
+        const removed = removeNode(draggedTreeNode.id, currentTree);
+        currentTree = insertInto(target.id, draggedTreeNode, removed.arr);
+      }
+
+      // Limpiar TODO el cache de volúmenes después de mover nodos
+      // Esto asegura que todos los grupos recalculen su volumen correctamente
+      // considerando solo sus keywords directas (no subgrupos)
+      volumeCacheRef.current.clear();
+
+      const sortedTree = sortOnlyAffectedNode(currentTree, target.id);
       return sortedTree;
     });
-    
-    setSuccess('Nodo movido correctamente');
-  }, []);
+
+    // Limpiar selección después de mover
+    setSelectedNodes(new Set());
+
+    const count = nodesToMove.length;
+    setSuccess(`${count} nodo${count > 1 ? 's' : ''} movido${count > 1 ? 's' : ''} correctamente`);
+  }, [selectedNodes]);
 
   const addGroup = ()=>{
     const g = { id: uid('group'), name:'Nuevo Grupo', isGroup:true, collapsed:false, children:[] };
@@ -620,10 +650,12 @@ function App(){
                 dragOver={dragOver}
                 editingId={editingId}
                 editingText={editingText}
+                selectedNodes={selectedNodes}
                 setDragging={setDragging}
                 setDragOver={setDragOver}
                 setEditingId={setEditingId}
                 setEditingText={setEditingText}
+                toggleNodeSelection={toggleNodeSelection}
                 toggleCollapse={toggleCollapse}
                 renameNode={renameNode}
                 deleteNode={deleteNode}
