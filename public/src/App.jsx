@@ -92,18 +92,14 @@ const parseCSV = (text) => {
 // Cache de volúmenes global
 const volumeCacheRef = { current: new Map() };
 
-// Función para calcular volumen de grupo recursivamente
+// Función para calcular volumen de grupo SOLO con keywords directas
 const directGroupVolume = (node) => {
   if (!node.children) return 0;
-  const cache = volumeCacheRef.current;
+  // Solo sumar las keywords directas (NO sumar subgrupos)
   return node.children.reduce((sum, child) => {
-    if (child?.isGroup) {
-      const cached = cache.get(child.id);
-      if (cached !== undefined) return sum + cached;
-      const vol = directGroupVolume(child);
-      cache.set(child.id, vol);
-      return sum + vol;
-    }
+    // Si es un grupo, NO lo sumamos (solo keywords directas)
+    if (child?.isGroup) return sum;
+    // Si es una keyword, la sumamos
     return sum + (child?.volume || 0);
   }, 0);
 };
