@@ -11,11 +11,13 @@ const FlowView = ({
   toggleFlowNode,
   renameNode,
   deleteNode,
-  setKeywordModal
+  setKeywordModal,
+  onMoveNode
 }) => {
   const containerRef = useRef(null);
   const editorRef = useRef(null);
   const [isDrawflowReady, setIsDrawflowReady] = useState(false);
+  const isRenderingRef = useRef(false); // Flag para indicar si estamos renderizando
 
   // Verificar que Drawflow esté disponible
   useEffect(() => {
@@ -255,6 +257,41 @@ const FlowView = ({
 
       console.log('Drawflow inicializado correctamente');
 
+      // Event listeners para capturar conexiones manuales del usuario
+      editor.on('connectionCreated', (info) => {
+        // Si estamos renderizando, ignorar el evento (es una conexión programática)
+        if (isRenderingRef.current) {
+          console.log('🔗 Conexión programática ignorada:', info);
+          return;
+        }
+
+        console.log('🔗 Conexión creada manualmente por usuario:', info);
+
+        // info contiene: { output_id, input_id, output_class, input_class }
+        // Necesitamos obtener los node.id originales de los nodos de Drawflow
+
+        const outputNode = editor.drawflow.drawflow.Home.data[info.output_id];
+        const inputNode = editor.drawflow.drawflow.Home.data[info.input_id];
+
+        if (outputNode && inputNode) {
+          // El name del nodo tiene formato "node-{id}", extraemos el id original
+          const sourceId = outputNode.name?.replace('node-', '');
+          const targetId = inputNode.name?.replace('node-', '');
+
+          console.log(`  → Moviendo nodo ${targetId} como hijo de ${sourceId}`);
+
+          if (sourceId && targetId && onMoveNode) {
+            // Llamar a onMoveNode para actualizar el árbol
+            onMoveNode(targetId, sourceId);
+          }
+        }
+      });
+
+      editor.on('connectionRemoved', (info) => {
+        console.log('🔗❌ Conexión eliminada:', info);
+        // Por ahora solo logueamos, podrías implementar lógica para desconectar nodos
+      });
+
       // Construir el diagrama
       const HORIZONTAL_SPACING = 400;
       const VERTICAL_SPACING = 150;
@@ -331,8 +368,9 @@ const FlowView = ({
       console.log('\n📍 PASO 1: Agregando todos los nodos...');
       tree.forEach(node => traverse(node));
 
-      // PASO 2: Crear todas las conexiones
+      // PASO 2: Crear todas las conexiones (activar flag para ignorar eventos)
       console.log(`\n🔗 PASO 2: Creando ${connections.length} conexiones...`);
+      isRenderingRef.current = true; // Activar flag de renderizado
       connections.forEach(conn => {
         try {
           const success = editor.addConnection(
@@ -349,6 +387,9 @@ const FlowView = ({
         }
       });
 
+      // Desactivar flag de renderizado
+      isRenderingRef.current = false;
+
       // Contar nodos y conexiones totales
       const totalNodes = Object.keys(editor.drawflow.drawflow.Home.data).length;
       const totalConnections = Object.keys(editor.drawflow.drawflow.Home.data).reduce((sum, key) => {
@@ -360,6 +401,7 @@ const FlowView = ({
       console.log(`Total de nodos agregados: ${totalNodes}`);
       console.log(`Total de conexiones: ${totalConnections}`);
       console.log(`Nodos en el drawflow:`, editor.drawflow.drawflow.Home.data);
+      console.log(`\n✅ Renderizado completo. Ahora puedes crear conexiones manualmente.`);
 
     } catch (err) {
       console.error('Error al inicializar Drawflow:', err);
