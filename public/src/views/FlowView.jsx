@@ -1,26 +1,9 @@
 // src/views/FlowView.jsx
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 const { nodeVolume } = window;
 const {
   IFolderOpen, ITrash, IEdit, ICheck, IChevronR, IChevronD, IEye
 } = window;
-
-// Verificar que ReactFlow esté disponible
-const ReactFlowLib = window.ReactFlow || {};
-
-console.log('ReactFlow library loaded:', !!ReactFlowLib);
-console.log('Available exports:', Object.keys(ReactFlowLib));
-
-// Extraer componentes de ReactFlow v11
-const ReactFlowComponent = ReactFlowLib.default;
-const ReactFlowProvider = ReactFlowLib.ReactFlowProvider;
-const Controls = ReactFlowLib.Controls;
-const MiniMap = ReactFlowLib.MiniMap;
-const Background = ReactFlowLib.Background;
-const useNodesState = ReactFlowLib.useNodesState;
-const useEdgesState = ReactFlowLib.useEdgesState;
-const addEdge = ReactFlowLib.addEdge;
-const MarkerType = ReactFlowLib.MarkerType || { ArrowClosed: 'arrowclosed' };
 
 const FlowView = ({
   tree,
@@ -30,15 +13,99 @@ const FlowView = ({
   deleteNode,
   setKeywordModal
 }) => {
-  // Componente de nodo custom
-  const CustomNode = ({ data }) => {
-    const { node, volume, isExpanded, onToggle, onShowKeywords, onRename, onDelete } = data;
-    const [isEditing, setIsEditing] = useState(false);
-    const [editText, setEditText] = useState(node.name || '');
+  const containerRef = useRef(null);
+  const editorRef = useRef(null);
+  const [isDrawflowReady, setIsDrawflowReady] = useState(false);
 
-    useEffect(() => {
-      setEditText(node.name || '');
-    }, [node.name]);
+  // Verificar que Drawflow esté disponible
+  useEffect(() => {
+    console.log('Drawflow disponible:', typeof window.Drawflow !== 'undefined');
+
+    if (typeof window.Drawflow === 'undefined') {
+      console.error('Drawflow no está cargado. Verifica el CDN.');
+      return;
+    }
+
+    setIsDrawflowReady(true);
+  }, []);
+
+  // Exponer callbacks globalmente para que el HTML los pueda usar
+  useEffect(() => {
+    window.flowCallbacks = {
+      toggleNode: (nodeId) => {
+        console.log('Toggle node:', nodeId);
+        toggleFlowNode(nodeId);
+      },
+      showKeywords: (nodeId) => {
+        console.log('Show keywords:', nodeId);
+        const node = findNodeById(tree, nodeId);
+        if (node) setKeywordModal(node);
+      },
+      startEdit: (nodeId) => {
+        console.log('Start edit:', nodeId);
+        const input = document.getElementById(`edit-input-${nodeId}`);
+        const display = document.getElementById(`display-name-${nodeId}`);
+        const editBtn = document.getElementById(`edit-btn-${nodeId}`);
+        const saveBtn = document.getElementById(`save-btn-${nodeId}`);
+
+        if (input && display && editBtn && saveBtn) {
+          input.classList.remove('hidden');
+          display.classList.add('hidden');
+          editBtn.classList.add('hidden');
+          saveBtn.classList.remove('hidden');
+          input.focus();
+        }
+      },
+      saveEdit: (nodeId) => {
+        console.log('Save edit:', nodeId);
+        const input = document.getElementById(`edit-input-${nodeId}`);
+        if (input && input.value.trim()) {
+          renameNode(nodeId, input.value.trim());
+        }
+        window.flowCallbacks.cancelEdit(nodeId);
+      },
+      cancelEdit: (nodeId) => {
+        const input = document.getElementById(`edit-input-${nodeId}`);
+        const display = document.getElementById(`display-name-${nodeId}`);
+        const editBtn = document.getElementById(`edit-btn-${nodeId}`);
+        const saveBtn = document.getElementById(`save-btn-${nodeId}`);
+
+        if (input && display && editBtn && saveBtn) {
+          input.classList.add('hidden');
+          display.classList.remove('hidden');
+          editBtn.classList.remove('hidden');
+          saveBtn.classList.add('hidden');
+        }
+      },
+      deleteNode: (nodeId) => {
+        console.log('Delete node:', nodeId);
+        if (confirm('¿Eliminar este nodo?')) {
+          deleteNode(nodeId);
+        }
+      }
+    };
+
+    return () => {
+      delete window.flowCallbacks;
+    };
+  }, [tree, toggleFlowNode, renameNode, deleteNode, setKeywordModal]);
+
+  // Función auxiliar para encontrar un nodo por ID
+  const findNodeById = (nodes, id) => {
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      if (node.children) {
+        const found = findNodeById(node.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  // Generar HTML para un nodo
+  const generateNodeHTML = (node) => {
+    const volume = nodeVolume(node);
+    const isExpanded = expandedNodes.has(node.id);
 
     const childGroups = node.isGroup && node.children
       ? node.children.filter(c => c.isGroup)
@@ -49,266 +116,260 @@ const FlowView = ({
       ? node.children.filter(c => !c.isGroup).length
       : 0;
 
-    return (
-      <div className="custom-node">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <IFolderOpen size={18} className="text-white flex-shrink-0"/>
-            {isEditing ? (
-              <input
-                className="flex-1 px-2 py-1 text-sm border border-white rounded bg-white/20 text-white placeholder-white/70"
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    onRename(node.id, editText);
-                    setIsEditing(false);
-                  }
-                  if (e.key === 'Escape') setIsEditing(false);
-                }}
-                autoFocus
-              />
-            ) : (
-              <span className="flex-1 text-white font-semibold text-sm truncate">
-                {node.name || node.keyword}
-              </span>
-            )}
+    const nodeName = node.name || node.keyword || 'Sin nombre';
+
+    return `
+      <div class="custom-node">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Header -->
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+
+            <input
+              id="edit-input-${node.id}"
+              type="text"
+              value="${nodeName}"
+              class="hidden flex-1 px-2 py-1 text-sm border border-white rounded bg-white/20 text-white placeholder-white/70"
+              onkeydown="if(event.key==='Enter') window.flowCallbacks.saveEdit('${node.id}'); if(event.key==='Escape') window.flowCallbacks.cancelEdit('${node.id}');"
+            />
+
+            <span id="display-name-${node.id}" class="flex-1 text-white font-semibold text-sm" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${nodeName}
+            </span>
+
             <button
-              onClick={() => onDelete(node.id)}
-              className="p-1 hover:bg-white/20 rounded transition-all"
+              onclick="window.flowCallbacks.deleteNode('${node.id}')"
+              style="padding: 4px; border-radius: 4px; transition: all 0.2s;"
+              onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+              onmouseout="this.style.background='transparent'"
             >
-              <ITrash size={14} className="text-white"/>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-2 text-white text-xs">
-            <div className="bg-white/20 px-2 py-1 rounded-full font-bold">
-              {volume.toLocaleString('es-CL')} vol.
+          <!-- Metrics -->
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: white;">
+            <div style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 16px; font-weight: bold;">
+              ${volume.toLocaleString('es-CL')} vol.
             </div>
-            {node.isGroup && keywordCount > 0 && (
-              <div className="bg-white/20 px-2 py-1 rounded-full">
-                {keywordCount} KWs
+            ${node.isGroup && keywordCount > 0 ? `
+              <div style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 16px;">
+                ${keywordCount} KWs
               </div>
-            )}
+            ` : ''}
           </div>
 
-          <div className="flex gap-1">
-            {hasChildGroups && (
+          <!-- Actions -->
+          <div style="display: flex; gap: 4px;">
+            ${hasChildGroups ? `
               <button
-                onClick={onToggle}
-                className="flex-1 px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-white text-xs font-medium transition-all flex items-center justify-center gap-1"
+                onclick="window.flowCallbacks.toggleNode('${node.id}')"
+                style="flex: 1; padding: 4px 8px; background: rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 12px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px; border: none; cursor: pointer;"
+                onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.2)'"
               >
-                {isExpanded ? <IChevronD size={12}/> : <IChevronR size={12}/>}
-                {isExpanded ? 'Contraer' : 'Expandir'}
+                ${isExpanded ? '▼ Contraer' : '▶ Expandir'}
               </button>
-            )}
+            ` : ''}
 
-            {node.isGroup && keywordCount > 0 && (
+            ${node.isGroup && keywordCount > 0 ? `
               <button
-                onClick={onShowKeywords}
-                className="flex-1 px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-white text-xs font-medium transition-all flex items-center justify-center gap-1"
+                onclick="window.flowCallbacks.showKeywords('${node.id}')"
+                style="flex: 1; padding: 4px 8px; background: rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 12px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px; border: none; cursor: pointer;"
+                onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.2)'"
               >
-                <IEye size={12}/>
-                Ver KWs
+                👁 Ver KWs
               </button>
-            )}
+            ` : ''}
 
-            {node.isGroup && !isEditing && (
+            ${node.isGroup ? `
               <button
-                onClick={() => {
-                  setEditText(node.name || '');
-                  setIsEditing(true);
-                }}
-                className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-white transition-all"
+                id="edit-btn-${node.id}"
+                onclick="window.flowCallbacks.startEdit('${node.id}')"
+                style="padding: 4px 8px; background: rgba(255,255,255,0.2); border-radius: 4px; color: white; transition: all 0.2s; border: none; cursor: pointer;"
+                onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.2)'"
               >
-                <IEdit size={12}/>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 21.5 2 22l1.5-5.5L17 3z"/>
+                </svg>
               </button>
-            )}
-            {isEditing && (
+
               <button
-                onClick={() => {
-                  onRename(node.id, editText);
-                  setIsEditing(false);
-                }}
-                className="px-2 py-1 bg-green-500 hover:bg-green-600 rounded text-white transition-all"
+                id="save-btn-${node.id}"
+                onclick="window.flowCallbacks.saveEdit('${node.id}')"
+                class="hidden"
+                style="padding: 4px 8px; background: #10b981; border-radius: 4px; color: white; transition: all 0.2s; border: none; cursor: pointer;"
+                onmouseover="this.style.background='#059669'"
+                onmouseout="this.style.background='#10b981'"
               >
-                <ICheck size={12}/>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
               </button>
-            )}
+            ` : ''}
           </div>
         </div>
       </div>
-    );
+    `;
   };
 
-  const nodeTypes = useMemo(() => ({ custom: CustomNode }), []);
+  // Inicializar y actualizar Drawflow
+  useEffect(() => {
+    if (!isDrawflowReady || !containerRef.current) return;
 
-  // Generar nodos y edges del árbol
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
-    const nodes = [];
-    const edges = [];
+    console.log('Inicializando Drawflow...');
 
-    const HORIZONTAL_SPACING = 400;
-    const VERTICAL_SPACING = 150;
-    const levelPositions = new Map();
+    // Limpiar contenedor
+    containerRef.current.innerHTML = '';
 
-    const traverse = (node, level = 0, parentId = null) => {
-      if (!node) return;
+    // Crear elemento para Drawflow
+    const drawflowDiv = document.createElement('div');
+    drawflowDiv.id = 'drawflow';
+    containerRef.current.appendChild(drawflowDiv);
 
-      const nodeId = node.id;
-      const isExpanded = expandedNodes.has(nodeId);
+    // Inicializar Drawflow
+    try {
+      const editor = new Drawflow(drawflowDiv);
+      editor.reroute = true;
+      editor.start();
 
-      if (!levelPositions.has(level)) {
-        levelPositions.set(level, []);
-      }
+      editorRef.current = editor;
 
-      const usedPositions = levelPositions.get(level);
-      const yPosition = usedPositions.length * VERTICAL_SPACING;
-      usedPositions.push(yPosition);
+      console.log('Drawflow inicializado correctamente');
 
-      nodes.push({
-        id: nodeId,
-        type: 'custom',
-        position: {
-          x: level * HORIZONTAL_SPACING,
-          y: yPosition
-        },
-        data: {
-          node,
-          volume: nodeVolume(node),
-          isExpanded,
-          onToggle: () => toggleFlowNode(nodeId),
-          onShowKeywords: () => setKeywordModal(node),
-          onRename: renameNode,
-          onDelete: deleteNode
+      // Construir el diagrama
+      const HORIZONTAL_SPACING = 400;
+      const VERTICAL_SPACING = 150;
+      const levelPositions = new Map();
+      const nodeIdMap = new Map(); // Mapeo de node.id a drawflow node id
+
+      let drawflowNodeId = 1;
+
+      const traverse = (node, level = 0, parentDrawflowId = null) => {
+        if (!node) return;
+
+        const isExpanded = expandedNodes.has(node.id);
+
+        // Calcular posición
+        if (!levelPositions.has(level)) {
+          levelPositions.set(level, []);
         }
-      });
 
-      if (parentId) {
-        edges.push({
-          id: `e${parentId}-${nodeId}`,
-          source: parentId,
-          target: nodeId,
-          type: 'smoothstep',
-          animated: true,
-          style: { stroke: '#8b5cf6', strokeWidth: 2 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-          }
-        });
-      }
+        const usedPositions = levelPositions.get(level);
+        const yPosition = usedPositions.length * VERTICAL_SPACING + 50;
+        usedPositions.push(yPosition);
 
-      if (isExpanded && node.isGroup && node.children) {
-        const childGroups = node.children.filter(c => c.isGroup);
-        childGroups.forEach(child => {
-          traverse(child, level + 1, nodeId);
-        });
+        const xPosition = level * HORIZONTAL_SPACING + 50;
+
+        // Generar HTML del nodo
+        const html = generateNodeHTML(node);
+
+        // Agregar nodo a Drawflow
+        const currentDrawflowId = drawflowNodeId++;
+        editor.addNode(
+          `node-${node.id}`,  // name
+          0,                   // inputs
+          1,                   // outputs
+          xPosition,
+          yPosition,
+          `node-${node.id}`,  // class
+          {},                  // data
+          html                 // html
+        );
+
+        nodeIdMap.set(node.id, currentDrawflowId);
+
+        console.log(`Nodo agregado: ${node.name || node.keyword} (Drawflow ID: ${currentDrawflowId})`);
+
+        // Crear conexión con el padre
+        if (parentDrawflowId !== null) {
+          editor.addConnection(
+            parentDrawflowId,      // output_id
+            currentDrawflowId,     // input_id
+            'output_1',            // output_class
+            'input_1'              // input_class
+          );
+          console.log(`Conexión creada: ${parentDrawflowId} -> ${currentDrawflowId}`);
+        }
+
+        // Procesar hijos si está expandido
+        if (isExpanded && node.isGroup && node.children) {
+          const childGroups = node.children.filter(c => c.isGroup);
+          childGroups.forEach(child => {
+            traverse(child, level + 1, currentDrawflowId);
+          });
+        }
+      };
+
+      // Procesar todos los nodos raíz
+      tree.forEach(node => traverse(node));
+
+      console.log(`Total de nodos agregados: ${drawflowNodeId - 1}`);
+      console.log(`Total de conexiones: ${Object.keys(editor.drawflow.drawflow.Home.data).reduce((sum, key) => {
+        const node = editor.drawflow.drawflow.Home.data[key];
+        return sum + Object.keys(node.outputs?.output_1?.connections || {}).length;
+      }, 0)}`);
+
+    } catch (err) {
+      console.error('Error al inicializar Drawflow:', err);
+    }
+
+    // Cleanup
+    return () => {
+      if (editorRef.current) {
+        try {
+          editorRef.current.clear();
+        } catch (e) {
+          console.error('Error al limpiar Drawflow:', e);
+        }
       }
     };
+  }, [tree, expandedNodes, isDrawflowReady]);
 
-    tree.forEach(node => traverse(node));
-
-    return { nodes, edges };
-  }, [tree, expandedNodes, toggleFlowNode, renameNode, deleteNode, setKeywordModal]);
-
-  // Usar hooks de ReactFlow v11 si están disponibles
-  const [nodes, setNodes, onNodesChange] = useNodesState
-    ? useNodesState(initialNodes)
-    : [initialNodes, () => {}, () => {}];
-
-  const [edges, setEdges, onEdgesChange] = useEdgesState
-    ? useEdgesState(initialEdges)
-    : [initialEdges, () => {}, () => {}];
-
-  // Actualizar cuando cambia el árbol
-  useEffect(() => {
-    if (setNodes) setNodes(initialNodes);
-    if (setEdges) setEdges(initialEdges);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
-
-  // Handler para crear conexiones
-  const onConnect = useCallback((params) => {
-    console.log('Nueva conexión:', params);
-    if (!addEdge) return;
-
-    setEdges((eds) => addEdge({
-      ...params,
-      type: 'smoothstep',
-      animated: true,
-      style: { stroke: '#10b981', strokeWidth: 3 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: '#10b981',
-      }
-    }, eds));
-  }, [setEdges]);
-
-  if (!ReactFlowComponent) {
+  if (!isDrawflowReady) {
     return (
       <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
         <div className="flex items-center justify-center h-full text-gray-600">
           <div className="text-center">
-            <p className="text-lg font-semibold mb-2">ReactFlow no está disponible</p>
-            <p className="text-sm">Por favor, recarga la página</p>
-            <p className="text-xs mt-4 text-gray-500 max-w-md">
-              Asegúrate de que el CDN de ReactFlow esté cargando correctamente.
-              Verifica la consola para más detalles.
-            </p>
+            <p className="text-lg font-semibold mb-2">Cargando Drawflow...</p>
+            <p className="text-sm">Por favor espera un momento</p>
           </div>
         </div>
       </div>
     );
   }
 
-  const Wrapper = ReactFlowProvider || (({ children }) => <>{children}</>);
-
   return (
     <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
-      <Wrapper>
-        <ReactFlowComponent
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.1}
-          maxZoom={2}
-          connectionLineType="smoothstep"
-          defaultEdgeOptions={{
-            type: 'smoothstep',
-            animated: true,
-          }}
-        >
-          {Background && <Background color="#e5e7eb" gap={16} />}
-          {Controls && <Controls />}
-          {MiniMap && (
-            <MiniMap
-              nodeColor={() => '#8b5cf6'}
-              maskColor="rgba(0, 0, 0, 0.1)"
-            />
-          )}
-          <div style={{
-            position: 'absolute',
-            right: '10px',
-            top: '10px',
-            background: 'white',
-            padding: '10px',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            fontSize: '12px',
-            zIndex: 5
-          }}>
-            <strong>💡 Controles:</strong><br/>
-            • Arrastra nodos para moverlos<br/>
-            • Arrastra desde el borde para conectar<br/>
-            • Selecciona conexión + Delete para eliminar<br/>
-            • Rueda del mouse para zoom
-          </div>
-        </ReactFlowComponent>
-      </Wrapper>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        {/* Drawflow se renderiza aquí */}
+      </div>
+
+      {/* Controles de ayuda */}
+      <div style={{
+        position: 'absolute',
+        right: '10px',
+        top: '10px',
+        background: 'white',
+        padding: '10px',
+        borderRadius: '8px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        fontSize: '12px',
+        zIndex: 5,
+        maxWidth: '200px'
+      }}>
+        <strong>💡 Controles:</strong><br/>
+        • Arrastra nodos para moverlos<br/>
+        • Haz clic en Expandir para ver subgrupos<br/>
+        • Usa la rueda del mouse para zoom<br/>
+        • Arrastra el canvas para desplazarte
+      </div>
     </div>
   );
 };
