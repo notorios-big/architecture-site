@@ -447,10 +447,12 @@ function App(){
 
         const removed = removeNode(draggedTreeNode.id, currentTree);
         currentTree = insertInto(target.id, draggedTreeNode, removed.arr);
-
-        volumeCacheRef.current.delete(target.id);
-        volumeCacheRef.current.delete(draggedTreeNode.id);
       }
+
+      // Limpiar TODO el cache de volúmenes después de mover nodos
+      // Esto asegura que todos los grupos recalculen su volumen correctamente
+      // considerando solo sus keywords directas (no subgrupos)
+      volumeCacheRef.current.clear();
 
       const sortedTree = sortOnlyAffectedNode(currentTree, target.id);
       return sortedTree;
