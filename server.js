@@ -47,7 +47,7 @@ app.post('/api/embeddings', async (req, res) => {
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: 'text-embedding-3-small',
+          model: 'text-embedding-3-large',
           input: batch
         })
       });
