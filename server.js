@@ -124,14 +124,19 @@ app.post('/api/clean-groups', async (req, res) => {
       console.log(`   ⚠️ No se encontró niche-context.json, usando contexto genérico`);
     }
 
-    // Preparar datos de grupos
+    // Preparar datos de grupos CON volúmenes de keywords
     const groupsData = groups.map((group, idx) => {
       const keywords = group.keywords || [];
       const keywordsList = keywords.map(kw => {
-        if (typeof kw === 'string') return kw;
-        if (kw.keyword) return kw.keyword;
-        return kw.name || '';
-      }).filter(k => k);
+        // Manejar diferentes formatos de keyword
+        if (typeof kw === 'string') {
+          return { keyword: kw, volume: 0 };
+        }
+        return {
+          keyword: kw.keyword || kw.name || '',
+          volume: kw.volume || 0
+        };
+      }).filter(k => k.keyword);
 
       return {
         index: idx,
@@ -159,8 +164,11 @@ ${contextSection}
 OBJETIVO:
 1. Para cada grupo, identifica keywords que NO tienen sentido semántico con el resto
 2. Esas keywords "huérfanas" deben moverse al grupo "LLM-POR-CLASIFICAR"
-3. Para cada grupo limpio, sugiere el título más representativo basado en la keyword con mayor volumen o la más descriptiva
-4. Un grupo debe mantener UNA ÚNICA intención de búsqueda
+3. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
+   - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
+   - "dupe good girl" → URL diferente a "dupe 212 vip"
+   - Solo agrupa keywords que podrían responderse en la MISMA landing page
+4. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
 
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
@@ -170,19 +178,26 @@ Responde SOLO con un objeto JSON válido (sin markdown, sin explicaciones):
   "cleanedGroups": [
     {
       "groupIndex": 0,
-      "suggestedTitle": "Dupe Good Girl Carolina Herrera",
       "keepKeywords": ["dupe good girl", "clon good girl"],
-      "removeKeywords": ["perfume mujer dulce"],
-      "reason": "La keyword 'perfume mujer dulce' es muy genérica y no menciona Good Girl"
+      "removeKeywords": [
+        {"keyword": "perfume mujer dulce", "volume": 1200},
+        {"keyword": "fragancia hombre", "volume": 800}
+      ],
+      "reason": "Las keywords removidas buscan intenciones diferentes y necesitan URLs separadas"
     }
   ],
-  "toClassify": ["perfume mujer dulce", "fragancia hombre", ...]
+  "toClassify": [
+    {"keyword": "perfume mujer dulce", "volume": 1200},
+    {"keyword": "fragancia hombre", "volume": 800}
+  ]
 }
 
 IMPORTANTE:
 - Solo incluye grupos que necesiten limpieza
-- toClassify debe contener TODAS las keywords removidas de todos los grupos
-- Si un grupo está bien, no lo incluyas en cleanedGroups`;
+- toClassify debe contener TODAS las keywords removidas de todos los grupos CON SU VOLUMEN
+- removeKeywords debe incluir el objeto completo de cada keyword con su volumen
+- Si un grupo está bien, no lo incluyas en cleanedGroups
+- NO sugieras títulos, trabajaremos con las keywords de mayor volumen`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
