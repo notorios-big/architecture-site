@@ -14,7 +14,7 @@ Herramienta para agrupar y organizar keywords basándose en intención de búsqu
 El sistema ahora cuenta con 3 funcionalidades separadas y especializadas:
 
 #### 1. 🧹 Limpieza de Grupos
-- Analiza batches de 100 grupos
+- Analiza batches de 50 grupos
 - Identifica keywords que no pertenecen a cada grupo
 - Mueve keywords huérfanas al grupo especial **"LLM-POR-CLASIFICAR"**
 - Asigna títulos representativos a cada grupo basados en la keyword más relevante
@@ -104,8 +104,8 @@ Una vez creados los grupos iniciales, el refinamiento se hace en 3 etapas separa
 
 #### Paso 1: 🧹 Limpiar Grupos
 1. Haz clic en **"🧹 1. Limpiar Grupos"**
-2. El sistema procesará los grupos en batches de 100
-3. Claude Sonnet 4.5:
+2. El sistema procesará los grupos en batches de 50
+3. Claude Haiku 4.5:
    - Identifica keywords que no pertenecen a cada grupo
    - Asigna títulos representativos
    - Mueve keywords huérfanas a "LLM-POR-CLASIFICAR"
@@ -197,8 +197,8 @@ El modelo **separa** keywords si:
 ### Algoritmos de Refinamiento
 
 #### Limpieza de Grupos
-1. **División en batches**: Procesa 100 grupos por batch
-2. **Análisis con LLM**: Identifica keywords fuera de lugar en cada grupo
+1. **División en batches**: Procesa 50 grupos por batch
+2. **Análisis con LLM**: Identifica keywords fuera de lugar en cada grupo (Claude Haiku 4.5)
 3. **Generación de títulos**: Sugiere nombre representativo por grupo
 4. **Aplicación de cambios**: Actualiza grupos y crea/actualiza "LLM-POR-CLASIFICAR"
 5. **Reordenamiento**: Ordena el árbol final por volumen
@@ -226,17 +226,19 @@ El modelo **separa** keywords si:
 - 1000 keywords ≈ $0.001
 
 ### Anthropic (Refinamiento)
-- Modelo: `claude-sonnet-4-5-20250929`
 
 **Limpieza de grupos:**
-- Costo por batch de 100 grupos: ~$0.10-0.20
-- 1000 grupos ≈ $1.00-2.00
+- Modelo: `claude-haiku-4-5`
+- Costo por batch de 50 grupos: ~$0.02-0.05
+- 1000 grupos ≈ $0.40-1.00
 
 **Clasificación de keywords:**
+- Modelo: `claude-sonnet-4-5-20250929`
 - Costo por keyword: ~$0.01-0.02
 - 100 keywords ≈ $1.00-2.00
 
 **Generación de jerarquías:**
+- Modelo: `claude-sonnet-4-5-20250929`
 - Costo por análisis completo: ~$0.05-0.15 (una sola llamada)
 
 ## Configuración del Contexto del Nicho

@@ -375,13 +375,13 @@ function App(){
     setError('');
 
     try {
-      const batchSize = 100;
+      const batchSize = 50;
       const batches = [];
       for (let i = 0; i < onlyGroups.length; i += batchSize) {
         batches.push(onlyGroups.slice(i, i + batchSize));
       }
 
-      console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches...`);
+      console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches de ${batchSize}...`);
 
       let allKeywordsToClassify = [];
       let updatedTree = [...tree];
