@@ -362,11 +362,12 @@ function App(){
     }
   };
 
-  const refineGroups = async () => {
-    const onlyGroups = tree.filter(node => node.isGroup);
+  // FUNCIÓN 1: Limpieza de grupos
+  const cleanGroups = async () => {
+    const onlyGroups = tree.filter(node => node.isGroup && node.name !== 'LLM-POR-CLASIFICAR');
 
     if (onlyGroups.length === 0) {
-      setError('No hay grupos para refinar. Primero ejecuta el agrupamiento automático.');
+      setError('No hay grupos para limpiar.');
       return;
     }
 
@@ -374,28 +375,21 @@ function App(){
     setError('');
 
     try {
-      // Dividir en batches
-      const batchSize = 12;
+      const batchSize = 100;
       const batches = [];
       for (let i = 0; i < onlyGroups.length; i += batchSize) {
         batches.push(onlyGroups.slice(i, i + batchSize));
       }
 
-      console.log(`🔍 Refinando ${onlyGroups.length} grupos en ${batches.length} batches...`);
+      console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches...`);
 
-      const allSuggestions = {
-        merges: [],
-        splits: [],
-        renames: [],
-        keepAsIs: []
-      };
+      let allKeywordsToClassify = [];
+      let updatedTree = [...tree];
 
-      // Procesar cada batch
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
-        setSuccess(`Procesando batch ${i + 1}/${batches.length}...`);
+        setSuccess(`Limpiando batch ${i + 1}/${batches.length}...`);
 
-        // Preparar datos del batch
         const batchData = batch.map(group => ({
           id: group.id,
           name: group.name,
@@ -405,8 +399,7 @@ function App(){
             .map(child => child.keyword || child.name)
         }));
 
-        // Llamar al endpoint
-        const resp = await fetch(`${serverBase}/api/refine-groups`, {
+        const resp = await fetch(`${serverBase}/api/clean-groups`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -418,141 +411,310 @@ function App(){
 
         if (!resp.ok) {
           let msg = 'HTTP ' + resp.status;
-          try {
-            const e = await resp.json();
-            msg = e?.error || msg;
-          } catch {}
-          throw new Error('Error al refinar grupos: ' + msg);
+          try { const e = await resp.json(); msg = e?.error || msg; } catch {}
+          throw new Error('Error al limpiar grupos: ' + msg);
         }
 
         const result = await resp.json();
         const suggestions = result.suggestions;
 
-        // Agregar sugerencias con IDs de grupos
-        if (suggestions.merges) {
-          suggestions.merges.forEach(merge => {
-            allSuggestions.merges.push({
-              ...merge,
-              groupIds: merge.groupIndices.map(idx => batch[idx].id)
+        // Aplicar limpiezas
+        if (suggestions.cleanedGroups) {
+          suggestions.cleanedGroups.forEach(cleaned => {
+            const group = batch[cleaned.groupIndex];
+            const groupIdx = updatedTree.findIndex(n => n.id === group.id);
+            if (groupIdx === -1) return;
+
+            // Actualizar título y mantener solo las keywords válidas
+            const newChildren = (updatedTree[groupIdx].children || []).filter(child => {
+              if (child.isGroup) return true;
+              const kwText = child.keyword || child.name;
+              return cleaned.keepKeywords.includes(kwText);
             });
+
+            updatedTree[groupIdx] = {
+              ...updatedTree[groupIdx],
+              name: cleaned.suggestedTitle,
+              children: newChildren
+            };
           });
         }
 
-        if (suggestions.splits) {
-          suggestions.splits.forEach(split => {
-            allSuggestions.splits.push({
-              ...split,
-              groupId: batch[split.groupIndex].id
-            });
-          });
+        if (suggestions.toClassify) {
+          allKeywordsToClassify.push(...suggestions.toClassify);
         }
 
-        if (suggestions.renames) {
-          suggestions.renames.forEach(rename => {
-            allSuggestions.renames.push({
-              ...rename,
-              groupId: batch[rename.groupIndex].id
-            });
-          });
-        }
-
-        console.log(`✅ Batch ${i + 1}/${batches.length} completado`);
-
-        // Pequeña pausa entre batches
         if (i < batches.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
 
-      console.log('\n📊 Resumen de sugerencias:');
-      console.log(`   - ${allSuggestions.merges.length} fusiones de grupos`);
-      console.log(`   - ${allSuggestions.splits.length} divisiones de grupos`);
-      console.log(`   - ${allSuggestions.renames.length} renombres`);
+      // Crear o actualizar grupo LLM-POR-CLASIFICAR
+      if (allKeywordsToClassify.length > 0) {
+        const toClassifyGroup = updatedTree.find(n => n.name === 'LLM-POR-CLASIFICAR');
+        const newKeywords = allKeywordsToClassify.map(kwText => ({
+          id: uid('kw'),
+          keyword: kwText,
+          volume: 0,
+          isGroup: false
+        }));
 
-      // Aplicar sugerencias al árbol
-      let updatedTree = [...tree];
-
-      // 1. Aplicar renombres
-      if (allSuggestions.renames.length > 0) {
-        allSuggestions.renames.forEach(rename => {
-          updatedTree = updatedTree.map(node => {
-            if (node.id === rename.groupId) {
-              return { ...node, name: rename.suggestedName };
-            }
-            return node;
-          });
-        });
-      }
-
-      // 2. Aplicar splits
-      if (allSuggestions.splits.length > 0) {
-        allSuggestions.splits.forEach(split => {
-          const groupIndex = updatedTree.findIndex(n => n.id === split.groupId);
-          if (groupIndex === -1) return;
-
-          const originalGroup = updatedTree[groupIndex];
-          const newGroups = split.newGroups.map(ng => {
-            const keywordNodes = ng.keywords.map(kwText => {
-              return originalGroup.children?.find(child =>
-                (child.keyword === kwText || child.name === kwText)
-              );
-            }).filter(Boolean);
-
-            return {
-              id: uid('group'),
-              name: ng.suggestedName,
-              isGroup: true,
-              collapsed: false,
-              children: keywordNodes
-            };
-          });
-
-          updatedTree.splice(groupIndex, 1, ...newGroups);
-        });
-      }
-
-      // 3. Aplicar merges
-      if (allSuggestions.merges.length > 0) {
-        allSuggestions.merges.forEach(merge => {
-          const groupsToMerge = merge.groupIds.map(gid =>
-            updatedTree.find(n => n.id === gid)
-          ).filter(Boolean);
-
-          if (groupsToMerge.length < 2) return;
-
-          const mergedChildren = [];
-          groupsToMerge.forEach(group => {
-            if (group.children) {
-              mergedChildren.push(...group.children);
-            }
-          });
-
-          const mergedGroup = {
+        if (toClassifyGroup) {
+          const idx = updatedTree.findIndex(n => n.id === toClassifyGroup.id);
+          updatedTree[idx] = {
+            ...toClassifyGroup,
+            children: [...(toClassifyGroup.children || []), ...newKeywords]
+          };
+        } else {
+          updatedTree.push({
             id: uid('group'),
-            name: merge.suggestedName,
+            name: 'LLM-POR-CLASIFICAR',
             isGroup: true,
             collapsed: false,
-            children: mergedChildren
-          };
-
-          updatedTree = updatedTree.filter(n => !merge.groupIds.includes(n.id));
-          updatedTree.push(mergedGroup);
-        });
+            children: newKeywords
+          });
+        }
       }
 
-      // Ordenar el árbol final
       const sortedTree = sortGroupChildren(updatedTree);
       setTree(sortedTree);
-
-      // Mensaje de éxito
-      const summary = [];
-      if (allSuggestions.merges.length > 0) summary.push(`${allSuggestions.merges.length} fusiones`);
-      if (allSuggestions.splits.length > 0) summary.push(`${allSuggestions.splits.length} divisiones`);
-      if (allSuggestions.renames.length > 0) summary.push(`${allSuggestions.renames.length} renombres`);
-
-      setSuccess(`Refinamiento completado: ${summary.join(', ')}`);
+      setSuccess(`Limpieza completada. ${allKeywordsToClassify.length} keywords movidas a LLM-POR-CLASIFICAR`);
     } catch (err) {
-      setError('Error al refinar grupos: ' + (err?.message || String(err)));
+      setError('Error al limpiar grupos: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // FUNCIÓN 2: Clasificar keywords desde LLM-POR-CLASIFICAR
+  const classifyKeywords = async () => {
+    const toClassifyGroup = tree.find(n => n.name === 'LLM-POR-CLASIFICAR');
+
+    if (!toClassifyGroup || !toClassifyGroup.children || toClassifyGroup.children.length === 0) {
+      setError('No hay keywords en el grupo LLM-POR-CLASIFICAR para clasificar.');
+      return;
+    }
+
+    const otherGroups = tree.filter(n => n.isGroup && n.name !== 'LLM-POR-CLASIFICAR');
+    if (otherGroups.length === 0) {
+      setError('No hay otros grupos para clasificar las keywords.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const keywordsToClassify = toClassifyGroup.children.filter(c => !c.isGroup);
+      console.log(`🎯 Clasificando ${keywordsToClassify.length} keywords...`);
+
+      // 1. Generar embeddings para todas las keywords y grupos
+      setSuccess('Generando embeddings...');
+      const allKeywords = keywordsToClassify.map(k => k.keyword);
+      const groupRepresentatives = otherGroups.map(g => g.name);
+
+      const keywordEmbeddings = await getEmbeddingsBatch(allKeywords);
+      const groupEmbeddings = await getEmbeddingsBatch(groupRepresentatives);
+
+      let updatedTree = [...tree];
+      let classifiedCount = 0;
+      let newGroupsCreated = 0;
+
+      // 2. Clasificar cada keyword
+      for (let i = 0; i < keywordsToClassify.length; i++) {
+        const kw = keywordsToClassify[i];
+        const kwEmbed = keywordEmbeddings[i];
+
+        setSuccess(`Clasificando ${i + 1}/${keywordsToClassify.length}...`);
+
+        // 2.1 Pre-filtro con embeddings (producto punto)
+        const similarities = groupEmbeddings.map((gEmbed, idx) => ({
+          index: idx,
+          similarity: cosine(kwEmbed, gEmbed),
+          group: otherGroups[idx]
+        }));
+
+        // 2.2 Filtrar grupos con similitud > 0.3
+        const candidates = similarities
+          .filter(s => s.similarity > 0.3)
+          .sort((a, b) => b.similarity - a.similarity)
+          .slice(0, 40); // Máximo 40 candidatos
+
+        if (candidates.length === 0) {
+          console.log(`⚠️ Keyword "${kw.keyword}" sin candidatos válidos, se mantiene en LLM-POR-CLASIFICAR`);
+          continue;
+        }
+
+        // 2.3 Preparar datos para el LLM
+        const candidateGroups = candidates.map(c => ({
+          index: c.index,
+          name: c.group.name,
+          similarity: c.similarity,
+          sampleKeywords: (c.group.children || [])
+            .filter(child => !child.isGroup)
+            .slice(0, 5)
+            .map(child => child.keyword || child.name)
+        }));
+
+        // 2.4 Llamar al LLM para decisión final
+        const resp = await fetch(`${serverBase}/api/classify-keywords`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            keyword: kw.keyword,
+            candidateGroups
+          })
+        });
+
+        if (!resp.ok) {
+          console.warn(`Error clasificando "${kw.keyword}", se mantiene en LLM-POR-CLASIFICAR`);
+          continue;
+        }
+
+        const result = await resp.json();
+        const classification = result.classification;
+
+        // 2.5 Aplicar clasificación
+        if (classification.selectedGroupIndex !== -1) {
+          // Mover a grupo existente
+          const targetGroup = candidates[classification.selectedGroupIndex].group;
+          const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
+
+          if (targetIdx !== -1) {
+            updatedTree[targetIdx] = {
+              ...updatedTree[targetIdx],
+              children: [...(updatedTree[targetIdx].children || []), kw]
+            };
+            classifiedCount++;
+          }
+        } else if (classification.suggestedGroupName) {
+          // Crear nuevo grupo
+          const newGroup = {
+            id: uid('group'),
+            name: classification.suggestedGroupName,
+            isGroup: true,
+            collapsed: false,
+            children: [kw]
+          };
+          updatedTree.push(newGroup);
+          otherGroups.push(newGroup);
+          newGroupsCreated++;
+          classifiedCount++;
+        }
+
+        // Pequeña pausa para no saturar
+        if (i < keywordsToClassify.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+
+      // 3. Actualizar grupo LLM-POR-CLASIFICAR (remover clasificados)
+      const classifyGroupIdx = updatedTree.findIndex(n => n.id === toClassifyGroup.id);
+      if (classifyGroupIdx !== -1) {
+        const remainingKeywords = keywordsToClassify.filter((_, idx) => idx >= classifiedCount);
+
+        if (remainingKeywords.length === 0) {
+          // Eliminar el grupo si está vacío
+          updatedTree.splice(classifyGroupIdx, 1);
+        } else {
+          updatedTree[classifyGroupIdx] = {
+            ...updatedTree[classifyGroupIdx],
+            children: remainingKeywords
+          };
+        }
+      }
+
+      const sortedTree = sortGroupChildren(updatedTree);
+      setTree(sortedTree);
+      setSuccess(`Clasificadas ${classifiedCount} keywords. ${newGroupsCreated} nuevos grupos creados.`);
+    } catch (err) {
+      setError('Error al clasificar keywords: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // FUNCIÓN 3: Generar jerarquías padre-hijo
+  const generateHierarchies = async () => {
+    const onlyGroups = tree.filter(node => node.isGroup);
+
+    if (onlyGroups.length < 2) {
+      setError('Se necesitan al menos 2 grupos para generar jerarquías.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      setSuccess('Analizando jerarquías...');
+
+      const groupsData = onlyGroups.map(group => ({
+        id: group.id,
+        name: group.name,
+        volume: nodeVolume(group),
+        keywords: (group.children || [])
+          .filter(child => !child.isGroup)
+          .map(child => child.keyword || child.name)
+      }));
+
+      const resp = await fetch(`${serverBase}/api/generate-hierarchies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groups: groupsData })
+      });
+
+      if (!resp.ok) {
+        let msg = 'HTTP ' + resp.status;
+        try { const e = await resp.json(); msg = e?.error || msg; } catch {}
+        throw new Error('Error al generar jerarquías: ' + msg);
+      }
+
+      const result = await resp.json();
+      const suggestions = result.suggestions;
+
+      if (!suggestions.hierarchies || suggestions.hierarchies.length === 0) {
+        setSuccess('No se encontraron jerarquías válidas para crear.');
+        setLoading(false);
+        return;
+      }
+
+      // Aplicar jerarquías
+      let updatedTree = [...tree];
+
+      suggestions.hierarchies.forEach(hierarchy => {
+        const parentGroup = onlyGroups[hierarchy.parentIndex];
+        const childrenGroups = hierarchy.childrenIndices.map(idx => onlyGroups[idx]);
+
+        const parentIdx = updatedTree.findIndex(n => n.id === parentGroup.id);
+        if (parentIdx === -1) return;
+
+        // Mover grupos hijos dentro del padre
+        const movedChildren = childrenGroups.map(child => {
+          const childInTree = updatedTree.find(n => n.id === child.id);
+          return childInTree;
+        }).filter(Boolean);
+
+        // Actualizar padre con hijos
+        updatedTree[parentIdx] = {
+          ...updatedTree[parentIdx],
+          children: [
+            ...(updatedTree[parentIdx].children || []),
+            ...movedChildren
+          ]
+        };
+
+        // Remover hijos del nivel raíz
+        updatedTree = updatedTree.filter(n =>
+          !hierarchy.childrenIndices.some(idx => onlyGroups[idx].id === n.id)
+        );
+      });
+
+      const sortedTree = sortGroupChildren(updatedTree);
+      setTree(sortedTree);
+      setSuccess(`${suggestions.hierarchies.length} jerarquías creadas exitosamente.`);
+    } catch (err) {
+      setError('Error al generar jerarquías: ' + (err?.message || String(err)));
     } finally {
       setLoading(false);
     }
@@ -788,10 +950,27 @@ function App(){
               )}
 
               {tree.filter(n => n.isGroup).length > 0 && (
-                <button onClick={refineGroups} disabled={loading}
-                        className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg">
-                  {loading? '🤖 Refinando...':'🤖 Refinar con IA'}
-                </button>
+                <>
+                  <button onClick={cleanGroups} disabled={loading}
+                          className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                          data-tooltip="Limpia grupos y mueve keywords huérfanas a LLM-POR-CLASIFICAR">
+                    {loading? '🧹 Limpiando...':'🧹 1. Limpiar Grupos'}
+                  </button>
+
+                  {tree.find(n => n.name === 'LLM-POR-CLASIFICAR' && n.children?.length > 0) && (
+                    <button onClick={classifyKeywords} disabled={loading}
+                            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                            data-tooltip="Clasifica keywords desde LLM-POR-CLASIFICAR usando embeddings + LLM">
+                      {loading? '🎯 Clasificando...':'🎯 2. Clasificar Keywords'}
+                    </button>
+                  )}
+
+                  <button onClick={generateHierarchies} disabled={loading}
+                          className="px-4 py-2 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                          data-tooltip="Genera conexiones padre-hijo entre grupos">
+                    {loading? '🌳 Generando...':'🌳 3. Generar Jerarquías'}
+                  </button>
+                </>
               )}
 
               <button onClick={addGroup}
