@@ -97,8 +97,18 @@ const useStore = () => {
 
         for (let j = 0; j < withEmbeds.length; j++) {
           if (i === j || used.has(j)) continue;
-          const s = window.cosine(base.embedding, withEmbeds[j].embedding);
-          if (s >= threshold) {
+
+          // Verificar similitud con TODAS las keywords del grupo (iterativo)
+          let matchesAll = true;
+          for (const member of g) {
+            const s = window.cosine(member.embedding, withEmbeds[j].embedding);
+            if (s < threshold) {
+              matchesAll = false;
+              break;
+            }
+          }
+
+          if (matchesAll) {
             g.push(withEmbeds[j]);
             used.add(j);
           }

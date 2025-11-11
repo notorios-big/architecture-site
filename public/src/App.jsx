@@ -304,8 +304,18 @@ function App(){
 
         for (let j = 0; j < withEmbeds.length; j++) {
           if (i === j || used.has(j)) continue;
-          const s = cosine(base.embedding, withEmbeds[j].embedding);
-          if (s >= threshold) {
+
+          // Verificar similitud con TODAS las keywords del grupo (iterativo)
+          let matchesAll = true;
+          for (const member of g) {
+            const s = cosine(member.embedding, withEmbeds[j].embedding);
+            if (s < threshold) {
+              matchesAll = false;
+              break;
+            }
+          }
+
+          if (matchesAll) {
             g.push(withEmbeds[j]);
             used.add(j);
           }
