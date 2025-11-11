@@ -261,8 +261,6 @@ const FlowView = ({
       const levelPositions = new Map();
       const nodeIdMap = new Map(); // Mapeo de node.id a drawflow node id
 
-      let drawflowNodeId = 1;
-
       const traverse = (node, level = 0, parentDrawflowId = null) => {
         if (!node) return;
 
@@ -284,11 +282,10 @@ const FlowView = ({
         // Generar HTML del nodo
         const html = generateNodeHTML(node);
 
-        // Agregar nodo a Drawflow
-        const currentDrawflowId = drawflowNodeId++;
-        editor.addNode(
+        // Agregar nodo a Drawflow y capturar el ID real que devuelve
+        const currentDrawflowId = editor.addNode(
           `node-${node.id}`,  // name
-          1,                   // inputs - CAMBIADO: 1 input para poder conectar
+          1,                   // inputs - tiene 1 input para poder conectar
           1,                   // outputs
           xPosition,
           yPosition,
@@ -303,13 +300,17 @@ const FlowView = ({
 
         // Crear conexión con el padre
         if (parentDrawflowId !== null) {
-          editor.addConnection(
-            parentDrawflowId,      // output_id
-            currentDrawflowId,     // input_id
-            'output_1',            // output_class
-            'input_1'              // input_class
-          );
-          console.log(`  → Conexión creada: ${parentDrawflowId} -> ${currentDrawflowId}`);
+          try {
+            editor.addConnection(
+              parentDrawflowId,      // output_id
+              currentDrawflowId,     // input_id
+              'output_1',            // output_class
+              'input_1'              // input_class
+            );
+            console.log(`  → Conexión creada: ${parentDrawflowId} -> ${currentDrawflowId}`);
+          } catch (err) {
+            console.error(`  ✗ Error al crear conexión ${parentDrawflowId} -> ${currentDrawflowId}:`, err);
+          }
         }
 
         // Procesar hijos si está expandido
@@ -331,11 +332,17 @@ const FlowView = ({
       // Procesar todos los nodos raíz
       tree.forEach(node => traverse(node));
 
-      console.log(`Total de nodos agregados: ${drawflowNodeId - 1}`);
-      console.log(`Total de conexiones: ${Object.keys(editor.drawflow.drawflow.Home.data).reduce((sum, key) => {
+      // Contar nodos y conexiones totales
+      const totalNodes = Object.keys(editor.drawflow.drawflow.Home.data).length;
+      const totalConnections = Object.keys(editor.drawflow.drawflow.Home.data).reduce((sum, key) => {
         const node = editor.drawflow.drawflow.Home.data[key];
         return sum + Object.keys(node.outputs?.output_1?.connections || {}).length;
-      }, 0)}`);
+      }, 0);
+
+      console.log(`\n📊 Resumen:`);
+      console.log(`Total de nodos agregados: ${totalNodes}`);
+      console.log(`Total de conexiones: ${totalConnections}`);
+      console.log(`Nodos en el drawflow:`, editor.drawflow.drawflow.Home.data);
 
     } catch (err) {
       console.error('Error al inicializar Drawflow:', err);
