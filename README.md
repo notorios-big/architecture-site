@@ -142,7 +142,7 @@ El modelo **separa** keywords si:
 ## Costos Estimados
 
 ### OpenAI (Embeddings)
-- Modelo: `text-embedding-3-small`
+- Modelo: `text-embedding-3-large`
 - Costo: ~$0.02 por 1M tokens
 - 1000 keywords ≈ $0.001
 
