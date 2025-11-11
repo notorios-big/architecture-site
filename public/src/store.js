@@ -275,6 +275,130 @@ const useStore = () => {
     });
   }, []);
 
+  // Refinar grupos con LLM
+  const refineGroups = async () => {
+    const onlyGroups = tree.filter(node => node.isGroup);
+
+    if (onlyGroups.length === 0) {
+      setError('No hay grupos para refinar. Primero ejecuta el agrupamiento automático.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const suggestions = await window.refineGroupsWithLLM(
+        tree,
+        12,
+        (batchIndex, totalBatches) => {
+          setSuccess(`Procesando batch ${batchIndex + 1}/${totalBatches}...`);
+        }
+      );
+
+      // Aplicar sugerencias al árbol
+      let updatedTree = [...tree];
+
+      // 1. Aplicar renombres primero (más simple)
+      if (suggestions.renames && suggestions.renames.length > 0) {
+        suggestions.renames.forEach(rename => {
+          const groupId = rename.groupId;
+          updatedTree = updatedTree.map(node => {
+            if (node.id === groupId) {
+              return { ...node, name: rename.suggestedName };
+            }
+            return node;
+          });
+        });
+        console.log(`✅ Aplicados ${suggestions.renames.length} renombres`);
+      }
+
+      // 2. Aplicar splits (dividir grupos)
+      if (suggestions.splits && suggestions.splits.length > 0) {
+        suggestions.splits.forEach(split => {
+          const groupId = split.groupId;
+          const groupIndex = updatedTree.findIndex(n => n.id === groupId);
+
+          if (groupIndex === -1) return;
+
+          const originalGroup = updatedTree[groupIndex];
+          const newGroups = split.newGroups.map(ng => {
+            // Encontrar los nodos keyword correspondientes
+            const keywordNodes = ng.keywords.map(kwText => {
+              return originalGroup.children?.find(child =>
+                (child.keyword === kwText || child.name === kwText)
+              );
+            }).filter(Boolean);
+
+            return {
+              id: window.uid('group'),
+              name: ng.suggestedName,
+              isGroup: true,
+              collapsed: false,
+              children: keywordNodes,
+              volume: keywordNodes.reduce((sum, kw) => sum + (kw.volume || 0), 0)
+            };
+          });
+
+          // Reemplazar el grupo original con los nuevos grupos
+          updatedTree.splice(groupIndex, 1, ...newGroups);
+        });
+        console.log(`✅ Aplicadas ${suggestions.splits.length} divisiones`);
+      }
+
+      // 3. Aplicar merges (fusionar grupos)
+      if (suggestions.merges && suggestions.merges.length > 0) {
+        suggestions.merges.forEach(merge => {
+          const groupIds = merge.groupIds;
+          const groupsToMerge = groupIds.map(gid =>
+            updatedTree.find(n => n.id === gid)
+          ).filter(Boolean);
+
+          if (groupsToMerge.length < 2) return;
+
+          // Combinar todos los children
+          const mergedChildren = [];
+          groupsToMerge.forEach(group => {
+            if (group.children) {
+              mergedChildren.push(...group.children);
+            }
+          });
+
+          // Crear nuevo grupo fusionado
+          const mergedGroup = {
+            id: window.uid('group'),
+            name: merge.suggestedName,
+            isGroup: true,
+            collapsed: false,
+            children: mergedChildren,
+            volume: mergedChildren.reduce((sum, kw) => sum + (kw.volume || 0), 0)
+          };
+
+          // Eliminar grupos originales y agregar el fusionado
+          updatedTree = updatedTree.filter(n => !groupIds.includes(n.id));
+          updatedTree.push(mergedGroup);
+        });
+        console.log(`✅ Aplicadas ${suggestions.merges.length} fusiones`);
+      }
+
+      // Ordenar el árbol final
+      const sortedTree = window.sortGroupChildren(updatedTree);
+      setTree(sortedTree);
+
+      // Mensaje de éxito con resumen
+      const summary = [];
+      if (suggestions.merges.length > 0) summary.push(`${suggestions.merges.length} fusiones`);
+      if (suggestions.splits.length > 0) summary.push(`${suggestions.splits.length} divisiones`);
+      if (suggestions.renames.length > 0) summary.push(`${suggestions.renames.length} renombres`);
+
+      setSuccess(`Refinamiento completado: ${summary.join(', ')}`);
+    } catch (err) {
+      setError('Error al refinar grupos: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     // Estado
     keywords,
@@ -301,6 +425,7 @@ const useStore = () => {
     // Acciones
     onCSV,
     autoGroup,
+    refineGroups,
     toggleCollapse,
     collapseAll,
     renameNode,

@@ -362,6 +362,202 @@ function App(){
     }
   };
 
+  const refineGroups = async () => {
+    const onlyGroups = tree.filter(node => node.isGroup);
+
+    if (onlyGroups.length === 0) {
+      setError('No hay grupos para refinar. Primero ejecuta el agrupamiento automático.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Dividir en batches
+      const batchSize = 12;
+      const batches = [];
+      for (let i = 0; i < onlyGroups.length; i += batchSize) {
+        batches.push(onlyGroups.slice(i, i + batchSize));
+      }
+
+      console.log(`🔍 Refinando ${onlyGroups.length} grupos en ${batches.length} batches...`);
+
+      const allSuggestions = {
+        merges: [],
+        splits: [],
+        renames: [],
+        keepAsIs: []
+      };
+
+      // Procesar cada batch
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        setSuccess(`Procesando batch ${i + 1}/${batches.length}...`);
+
+        // Preparar datos del batch
+        const batchData = batch.map(group => ({
+          id: group.id,
+          name: group.name,
+          volume: nodeVolume(group),
+          keywords: (group.children || [])
+            .filter(child => !child.isGroup)
+            .map(child => child.keyword || child.name)
+        }));
+
+        // Llamar al endpoint
+        const resp = await fetch(`${serverBase}/api/refine-groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groups: batchData,
+            batchIndex: i,
+            totalBatches: batches.length
+          })
+        });
+
+        if (!resp.ok) {
+          let msg = 'HTTP ' + resp.status;
+          try {
+            const e = await resp.json();
+            msg = e?.error || msg;
+          } catch {}
+          throw new Error('Error al refinar grupos: ' + msg);
+        }
+
+        const result = await resp.json();
+        const suggestions = result.suggestions;
+
+        // Agregar sugerencias con IDs de grupos
+        if (suggestions.merges) {
+          suggestions.merges.forEach(merge => {
+            allSuggestions.merges.push({
+              ...merge,
+              groupIds: merge.groupIndices.map(idx => batch[idx].id)
+            });
+          });
+        }
+
+        if (suggestions.splits) {
+          suggestions.splits.forEach(split => {
+            allSuggestions.splits.push({
+              ...split,
+              groupId: batch[split.groupIndex].id
+            });
+          });
+        }
+
+        if (suggestions.renames) {
+          suggestions.renames.forEach(rename => {
+            allSuggestions.renames.push({
+              ...rename,
+              groupId: batch[rename.groupIndex].id
+            });
+          });
+        }
+
+        console.log(`✅ Batch ${i + 1}/${batches.length} completado`);
+
+        // Pequeña pausa entre batches
+        if (i < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      console.log('\n📊 Resumen de sugerencias:');
+      console.log(`   - ${allSuggestions.merges.length} fusiones de grupos`);
+      console.log(`   - ${allSuggestions.splits.length} divisiones de grupos`);
+      console.log(`   - ${allSuggestions.renames.length} renombres`);
+
+      // Aplicar sugerencias al árbol
+      let updatedTree = [...tree];
+
+      // 1. Aplicar renombres
+      if (allSuggestions.renames.length > 0) {
+        allSuggestions.renames.forEach(rename => {
+          updatedTree = updatedTree.map(node => {
+            if (node.id === rename.groupId) {
+              return { ...node, name: rename.suggestedName };
+            }
+            return node;
+          });
+        });
+      }
+
+      // 2. Aplicar splits
+      if (allSuggestions.splits.length > 0) {
+        allSuggestions.splits.forEach(split => {
+          const groupIndex = updatedTree.findIndex(n => n.id === split.groupId);
+          if (groupIndex === -1) return;
+
+          const originalGroup = updatedTree[groupIndex];
+          const newGroups = split.newGroups.map(ng => {
+            const keywordNodes = ng.keywords.map(kwText => {
+              return originalGroup.children?.find(child =>
+                (child.keyword === kwText || child.name === kwText)
+              );
+            }).filter(Boolean);
+
+            return {
+              id: uid('group'),
+              name: ng.suggestedName,
+              isGroup: true,
+              collapsed: false,
+              children: keywordNodes
+            };
+          });
+
+          updatedTree.splice(groupIndex, 1, ...newGroups);
+        });
+      }
+
+      // 3. Aplicar merges
+      if (allSuggestions.merges.length > 0) {
+        allSuggestions.merges.forEach(merge => {
+          const groupsToMerge = merge.groupIds.map(gid =>
+            updatedTree.find(n => n.id === gid)
+          ).filter(Boolean);
+
+          if (groupsToMerge.length < 2) return;
+
+          const mergedChildren = [];
+          groupsToMerge.forEach(group => {
+            if (group.children) {
+              mergedChildren.push(...group.children);
+            }
+          });
+
+          const mergedGroup = {
+            id: uid('group'),
+            name: merge.suggestedName,
+            isGroup: true,
+            collapsed: false,
+            children: mergedChildren
+          };
+
+          updatedTree = updatedTree.filter(n => !merge.groupIds.includes(n.id));
+          updatedTree.push(mergedGroup);
+        });
+      }
+
+      // Ordenar el árbol final
+      const sortedTree = sortGroupChildren(updatedTree);
+      setTree(sortedTree);
+
+      // Mensaje de éxito
+      const summary = [];
+      if (allSuggestions.merges.length > 0) summary.push(`${allSuggestions.merges.length} fusiones`);
+      if (allSuggestions.splits.length > 0) summary.push(`${allSuggestions.splits.length} divisiones`);
+      if (allSuggestions.renames.length > 0) summary.push(`${allSuggestions.renames.length} renombres`);
+
+      setSuccess(`Refinamiento completado: ${summary.join(', ')}`);
+    } catch (err) {
+      setError('Error al refinar grupos: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleCollapse = (id)=>{
     const walk=(nodes)=> nodes.map(n=>{
       if (n.id===id) return {...n, collapsed: !n.collapsed};
@@ -589,6 +785,13 @@ function App(){
                     {loading? '⏳ Agrupando...':'✨ Crear Agrupación'}
                   </button>
                 </>
+              )}
+
+              {tree.filter(n => n.isGroup).length > 0 && (
+                <button onClick={refineGroups} disabled={loading}
+                        className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg">
+                  {loading? '🤖 Refinando...':'🤖 Refinar con IA'}
+                </button>
               )}
 
               <button onClick={addGroup}
