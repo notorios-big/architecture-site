@@ -260,13 +260,14 @@ const FlowView = ({
       const VERTICAL_SPACING = 150;
       const levelPositions = new Map();
       const nodeIdMap = new Map(); // Mapeo de node.id a drawflow node id
+      const connections = []; // Array para guardar las conexiones a crear
 
-      const traverse = (node, level = 0, parentDrawflowId = null) => {
+      const traverse = (node, level = 0, parentId = null) => {
         if (!node) return;
 
         const isExpanded = expandedNodes.has(node.id);
 
-        console.log(`Procesando nodo: ${node.name || node.keyword}, Level: ${level}, Parent: ${parentDrawflowId}, Expanded: ${isExpanded}`);
+        console.log(`Procesando nodo: ${node.name || node.keyword}, Level: ${level}, Parent: ${parentId}, Expanded: ${isExpanded}`);
 
         // Calcular posición
         if (!levelPositions.has(level)) {
@@ -298,19 +299,16 @@ const FlowView = ({
 
         console.log(`  → Nodo agregado con Drawflow ID: ${currentDrawflowId} en posición (${xPosition}, ${yPosition})`);
 
-        // Crear conexión con el padre
-        if (parentDrawflowId !== null) {
-          try {
-            editor.addConnection(
-              parentDrawflowId,      // output_id
-              currentDrawflowId,     // input_id
-              'output_1',            // output_class
-              'input_1'              // input_class
-            );
-            console.log(`  → Conexión creada: ${parentDrawflowId} -> ${currentDrawflowId}`);
-          } catch (err) {
-            console.error(`  ✗ Error al crear conexión ${parentDrawflowId} -> ${currentDrawflowId}:`, err);
-          }
+        // Guardar la conexión para crearla después
+        if (parentId !== null) {
+          const parentDrawflowId = nodeIdMap.get(parentId);
+          connections.push({
+            from: parentDrawflowId,
+            to: currentDrawflowId,
+            parentName: parentId,
+            childName: node.id
+          });
+          console.log(`  → Conexión pendiente: ${parentDrawflowId} -> ${currentDrawflowId}`);
         }
 
         // Procesar hijos si está expandido
@@ -321,7 +319,7 @@ const FlowView = ({
           if (isExpanded && childGroups.length > 0) {
             console.log(`  → Procesando hijos porque está expandido`);
             childGroups.forEach(child => {
-              traverse(child, level + 1, currentDrawflowId);
+              traverse(child, level + 1, node.id);
             });
           } else if (!isExpanded && childGroups.length > 0) {
             console.log(`  → NO procesando hijos porque NO está expandido`);
@@ -329,8 +327,27 @@ const FlowView = ({
         }
       };
 
-      // Procesar todos los nodos raíz
+      // PASO 1: Procesar todos los nodos raíz y agregar todos los nodos
+      console.log('\n📍 PASO 1: Agregando todos los nodos...');
       tree.forEach(node => traverse(node));
+
+      // PASO 2: Crear todas las conexiones
+      console.log(`\n🔗 PASO 2: Creando ${connections.length} conexiones...`);
+      connections.forEach(conn => {
+        try {
+          const success = editor.addConnection(
+            conn.from,       // output_id
+            conn.to,         // input_id
+            'output_1',      // output_class
+            'input_1'        // input_class
+          );
+          console.log(`  ✓ Conexión creada: ${conn.from} -> ${conn.to} (${conn.parentName} -> ${conn.childName}) - Success: ${success}`);
+        } catch (err) {
+          console.error(`  ✗ Error al crear conexión ${conn.from} -> ${conn.to}:`, err);
+          console.error(`     Nodo ${conn.from} existe:`, !!editor.drawflow.drawflow.Home.data[conn.from]);
+          console.error(`     Nodo ${conn.to} existe:`, !!editor.drawflow.drawflow.Home.data[conn.to]);
+        }
+      });
 
       // Contar nodos y conexiones totales
       const totalNodes = Object.keys(editor.drawflow.drawflow.Home.data).length;
