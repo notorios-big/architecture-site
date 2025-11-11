@@ -1,0 +1,93 @@
+{
+  "nicho": "perfumes-dupes",
+  "descripcion": "Sitio web especializado en perfumes alternativos (dupes/clones) de fragancias de lujo",
+
+  "equivalencias": {
+    "dupes": ["clones", "perfumes replica", "inspiraciones", "alternativas", "similares", "imitaciones", "versiones"],
+    "para": ["destinado a", "de", "tipo"],
+    "mujer": ["mujeres", "femenino", "ella", "dama", "ladies", "women"],
+    "hombre": ["hombres", "masculino", "el", "caballero", "men"],
+    "unisex": ["para todos", "mixto", "neutro"]
+  },
+
+  "categorias_principales": [
+    {
+      "nombre": "Tipo de Fragancia",
+      "valores": ["dulce", "fresco", "amaderado", "floral", "citrico", "especiado", "oriental", "acuatico"]
+    },
+    {
+      "nombre": "Genero",
+      "valores": ["mujer", "hombre", "unisex"]
+    },
+    {
+      "nombre": "Ocasion",
+      "valores": ["dia", "noche", "verano", "invierno", "oficina", "fiesta"]
+    },
+    {
+      "nombre": "Marca Original",
+      "ejemplos": ["chanel", "dior", "paco rabanne", "carolina herrera", "versace", "tom ford"]
+    }
+  ],
+
+  "reglas_agrupacion": [
+    "Keywords que mencionan el mismo perfume original deben estar en el mismo grupo",
+    "Keywords con diferente genero (mujer vs hombre) deben estar en grupos separados",
+    "Keywords que buscan una lista general (ej: 'mejores dupes') vs un producto especifico deben estar separadas",
+    "Keywords transaccionales (comprar, precio) vs informativas (reseña, opinion) pueden estar en el mismo grupo si hablan del mismo producto",
+    "Variaciones de duracion (larga duracion, todo el dia) son caracteristicas complementarias, no grupos separados"
+  ],
+
+  "ejemplos_buenos_grupos": [
+    {
+      "nombre": "Dupe Good Girl Carolina Herrera",
+      "keywords": ["dupe good girl", "clon good girl", "inspiracion good girl", "perfume similar good girl carolina herrera", "alternativa good girl"],
+      "url_objetivo": "/dupes/good-girl-carolina-herrera",
+      "razon": "Todas buscan alternativas al mismo perfume especifico"
+    },
+    {
+      "nombre": "Dupes de 212 Men (Hombre)",
+      "keywords": ["dupe 212 men", "clon 212 hombre", "alternativa 212 masculino", "inspiracion 212 carolina herrera hombre"],
+      "url_objetivo": "/dupes/212-men",
+      "razon": "Todas buscan alternativas al mismo perfume masculino"
+    },
+    {
+      "nombre": "Mejores Dupes Perfumes Mujer",
+      "keywords": ["mejores dupes perfume mujer", "top dupes femeninos", "dupes baratos mujer", "listado dupes ella"],
+      "url_objetivo": "/mejores-dupes-mujer",
+      "razon": "Todas buscan una lista/comparativa general, no un producto especifico"
+    }
+  ],
+
+  "ejemplos_malos_grupos": [
+    {
+      "nombre": "Dupes Perfumes Hombre",
+      "keywords_problematicas": ["dupe 212 men", "dupe one million", "dupe sauvage", "mejores dupes hombre"],
+      "problema": "Mezcla productos especificos (212, one million, sauvage) con busqueda general (mejores dupes). Deben ser 4 grupos separados",
+      "solucion": "Crear 4 grupos: 'Dupe 212 Men', 'Dupe One Million', 'Dupe Sauvage', 'Mejores Dupes Hombre'"
+    },
+    {
+      "nombre": "Inspiraciones Carolina Herrera",
+      "keywords_problematicas": ["inspiracion good girl", "inspiracion 212 men", "inspiracion ch men", "inspiracion bad boy"],
+      "problema": "Son productos completamente diferentes de la misma marca, necesitan URLs separadas",
+      "solucion": "Separar en grupos por producto: Good Girl, 212 Men, CH Men, Bad Boy"
+    }
+  ],
+
+  "palabras_irrelevantes": [
+    "opiniones genericas sin producto especifico",
+    "keywords muy genericas tipo 'perfume'",
+    "marcas sin producto especifico cuando hay muchos productos de esa marca"
+  ],
+
+  "jerarquias_logicas": {
+    "ejemplo_1": {
+      "padre": "Dupes Carolina Herrera",
+      "hijos": ["Dupe Good Girl", "Dupe 212 VIP", "Dupe Bad Boy", "Dupe CH Men"]
+    },
+    "ejemplo_2": {
+      "padre": "Dupes Perfumes Mujer",
+      "hijos": ["Dupes Perfumes Dulces Mujer", "Dupes Perfumes Frescos Mujer"]
+    },
+    "regla": "Solo crear padre-hijo cuando el padre es una categoria/landing de listado y los hijos son productos/subcategorias especificas que pertenecen a ese listado"
+  }
+}

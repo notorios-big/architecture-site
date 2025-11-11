@@ -80,8 +80,24 @@ app.post('/api/embeddings', async (req, res) => {
   }
 });
 
-// Endpoint para refinar grupos con Claude Sonnet 4.5
-app.post('/api/refine-groups', async (req, res) => {
+// Función auxiliar para cargar el contexto del nicho
+const fs = require('fs');
+const loadNicheContext = () => {
+  try {
+    const contextPath = path.join(__dirname, 'niche-context.json');
+    if (fs.existsSync(contextPath)) {
+      return JSON.parse(fs.readFileSync(contextPath, 'utf8'));
+    }
+  } catch (error) {
+    console.warn('⚠️ No se pudo cargar niche-context.json:', error.message);
+  }
+  return null;
+};
+
+// ENDPOINT 1: Limpieza de grupos
+// Analiza batches de ~100 grupos, saca palabras que no tienen sentido
+// y las mueve a un grupo especial "LLM-POR-CLASIFICAR"
+app.post('/api/clean-groups', async (req, res) => {
   try {
     const { groups, batchIndex = 0, totalBatches = 1 } = req.body;
 
@@ -89,22 +105,20 @@ app.post('/api/refine-groups', async (req, res) => {
       return res.status(400).json({ error: 'Se requiere un array de grupos' });
     }
 
-    // Verificar que existe la API key de Anthropic
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(500).json({
-        error: 'ANTHROPIC_API_KEY no configurada en el servidor. Agrégala en el archivo .env'
+        error: 'ANTHROPIC_API_KEY no configurada en el servidor'
       });
     }
 
-    console.log(`\n🤖 Refinando batch ${batchIndex + 1}/${totalBatches} con ${groups.length} grupos...`);
+    console.log(`\n🧹 Limpiando batch ${batchIndex + 1}/${totalBatches} con ${groups.length} grupos...`);
 
-    // Inicializar cliente de Anthropic
     const anthropic = new Anthropic({ apiKey });
+    const nicheContext = loadNicheContext();
 
-    // Preparar datos de grupos para el prompt
+    // Preparar datos de grupos
     const groupsData = groups.map((group, idx) => {
-      // Extraer solo keywords (ignorar subgrupos anidados)
       const keywords = group.keywords || [];
       const keywordsList = keywords.map(kw => {
         if (typeof kw === 'string') return kw;
@@ -120,116 +134,78 @@ app.post('/api/refine-groups', async (req, res) => {
       };
     });
 
-    // Prompt optimizado para análisis de intención de búsqueda
-    const prompt = `Eres un experto en SEO y análisis de intención de búsqueda. Tu tarea es refinar grupos de keywords para un sitio web, considerando que cada grupo semántico debe representar una landing page única.
+    const contextSection = nicheContext ? `
+CONTEXTO DEL NICHO:
+${JSON.stringify(nicheContext, null, 2)}
 
-CONTEXTO Y OBJETIVO:
-- Cada grupo de keywords debe tener UNA ÚNICA intención de búsqueda
-- Cada intención de búsqueda debe tener UNA ÚNICA URL/landing page
-- Grupos con la misma intención deben FUSIONARSE
-- Keywords con diferentes intenciones dentro de un grupo deben SEPARARSE
-- Los nombres de grupos deben reflejar claramente la intención de búsqueda
+Usa este contexto para entender:
+- Equivalencias de términos (ej: dupes = clones = réplicas)
+- Categorías principales del nicho
+- Reglas específicas de agrupación
+- Ejemplos de buenos y malos grupos
+` : '';
 
-CRITERIOS DE AGRUPACIÓN:
-✅ MISMA INTENCIÓN (deben estar juntos):
-- "para que sirve la moringa" + "beneficios de la moringa" → Ambos buscan información sobre beneficios
-- "inspiración 212 men" + "dupe de 212 hombre" → Ambos buscan alternativas al mismo perfume
-- "receta de brownies" + "como hacer brownies" → Ambos buscan la misma receta
+    const prompt = `Eres un experto en SEO y análisis de keywords. Tu tarea es LIMPIAR grupos de keywords, identificando palabras que NO pertenecen a cada grupo y asignando títulos representativos.
 
-❌ DIFERENTE INTENCIÓN (deben separarse):
-- "dupe de 212 hombre" vs "dupe de one million" → Son productos diferentes, necesitan páginas separadas
-- "comprar silla" vs "reparar silla" → Una es transaccional, otra informativa
-- "historia del café" vs "como preparar café" → Una es informativa, otra es instructiva
+${contextSection}
 
-GRUPOS A ANALIZAR:
+OBJETIVO:
+1. Para cada grupo, identifica keywords que NO tienen sentido semántico con el resto
+2. Esas keywords "huérfanas" deben moverse al grupo "LLM-POR-CLASIFICAR"
+3. Para cada grupo limpio, sugiere el título más representativo basado en la keyword con mayor volumen o la más descriptiva
+4. Un grupo debe mantener UNA ÚNICA intención de búsqueda
+
+GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
 
-INSTRUCCIONES:
-1. Analiza la intención de búsqueda de cada grupo
-2. Identifica grupos que deberían fusionarse (misma intención)
-3. Identifica keywords que deberían separarse de su grupo (diferente intención)
-4. Sugiere nombres de grupos que reflejen mejor la intención
-
-Responde SOLO con un objeto JSON válido (sin markdown, sin explicaciones) con esta estructura:
+Responde SOLO con un objeto JSON válido (sin markdown, sin explicaciones):
 {
-  "merges": [
+  "cleanedGroups": [
     {
-      "groupIndices": [0, 2, 5],
-      "reason": "Todos buscan beneficios del producto X",
-      "suggestedName": "Beneficios de X"
+      "groupIndex": 0,
+      "suggestedTitle": "Dupe Good Girl Carolina Herrera",
+      "keepKeywords": ["dupe good girl", "clon good girl"],
+      "removeKeywords": ["perfume mujer dulce"],
+      "reason": "La keyword 'perfume mujer dulce' es muy genérica y no menciona Good Girl"
     }
   ],
-  "splits": [
-    {
-      "groupIndex": 1,
-      "reason": "Mezcla dos productos diferentes",
-      "newGroups": [
-        {
-          "keywords": ["keyword1", "keyword2"],
-          "suggestedName": "Nombre grupo 1"
-        },
-        {
-          "keywords": ["keyword3", "keyword4"],
-          "suggestedName": "Nombre grupo 2"
-        }
-      ]
-    }
-  ],
-  "renames": [
-    {
-      "groupIndex": 3,
-      "reason": "El nombre actual no refleja la intención",
-      "suggestedName": "Nuevo nombre"
-    }
-  ],
-  "keepAsIs": [4, 6, 7]
+  "toClassify": ["perfume mujer dulce", "fragancia hombre", ...]
 }
 
-Si no hay cambios necesarios para alguna categoría, usa un array vacío [].
-IMPORTANTE: Los índices deben corresponder a los índices del array de grupos proporcionado.`;
+IMPORTANTE:
+- Solo incluye grupos que necesiten limpieza
+- toClassify debe contener TODAS las keywords removidas de todos los grupos
+- Si un grupo está bien, no lo incluyas en cleanedGroups`;
 
-    // Llamar a Claude Sonnet 4.5
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 4096,
-      temperature: 0.3,
-      messages: [{
-        role: 'user',
-        content: prompt
-      }]
+      max_tokens: 8192,
+      temperature: 0.2,
+      messages: [{ role: 'user', content: prompt }]
     });
 
-    // Extraer la respuesta
     const responseText = message.content[0].text;
-    console.log('📝 Respuesta de Claude:', responseText);
+    let cleaningSuggestions;
 
-    // Parsear el JSON de la respuesta
-    let refinementSuggestions;
     try {
-      // Intentar extraer JSON si viene envuelto en markdown
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        refinementSuggestions = JSON.parse(jsonMatch[0]);
-      } else {
-        refinementSuggestions = JSON.parse(responseText);
-      }
+      cleaningSuggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
     } catch (parseError) {
-      console.error('Error parseando respuesta de Claude:', parseError);
+      console.error('Error parseando respuesta:', parseError);
       return res.status(500).json({
-        error: 'Error al parsear la respuesta del modelo',
+        error: 'Error al parsear respuesta del modelo',
         rawResponse: responseText
       });
     }
 
-    console.log('✅ Refinamiento completado para batch', batchIndex + 1);
-    console.log('   - Fusiones:', refinementSuggestions.merges?.length || 0);
-    console.log('   - Divisiones:', refinementSuggestions.splits?.length || 0);
-    console.log('   - Renombres:', refinementSuggestions.renames?.length || 0);
+    console.log('✅ Limpieza completada para batch', batchIndex + 1);
+    console.log('   - Grupos limpiados:', cleaningSuggestions.cleanedGroups?.length || 0);
+    console.log('   - Keywords a clasificar:', cleaningSuggestions.toClassify?.length || 0);
 
     res.json({
       success: true,
       batchIndex,
-      suggestions: refinementSuggestions,
+      suggestions: cleaningSuggestions,
       usage: {
         inputTokens: message.usage.input_tokens,
         outputTokens: message.usage.output_tokens
@@ -237,9 +213,212 @@ IMPORTANTE: Los índices deben corresponder a los índices del array de grupos p
     });
 
   } catch (error) {
-    console.error('Error en /api/refine-groups:', error);
+    console.error('Error en /api/clean-groups:', error);
     res.status(500).json({
       error: 'Error interno del servidor: ' + error.message
+    });
+  }
+});
+
+// ENDPOINT 2: Clasificar keywords desde LLM-POR-CLASIFICAR
+// Usa embeddings para pre-filtrar y luego LLM para decisión final
+app.post('/api/classify-keywords', async (req, res) => {
+  try {
+    const { keyword, candidateGroups } = req.body;
+
+    if (!keyword || !Array.isArray(candidateGroups)) {
+      return res.status(400).json({
+        error: 'Se requiere keyword y candidateGroups'
+      });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'ANTHROPIC_API_KEY no configurada'
+      });
+    }
+
+    console.log(`\n🎯 Clasificando keyword: "${keyword}" entre ${candidateGroups.length} candidatos...`);
+
+    const anthropic = new Anthropic({ apiKey });
+    const nicheContext = loadNicheContext();
+
+    const contextSection = nicheContext ? `
+CONTEXTO DEL NICHO:
+${JSON.stringify(nicheContext, null, 2)}
+` : '';
+
+    const prompt = `Eres un experto en SEO. Debes clasificar una keyword en el grupo más apropiado semánticamente.
+
+${contextSection}
+
+KEYWORD A CLASIFICAR:
+"${keyword}"
+
+GRUPOS CANDIDATOS (pre-filtrados por similitud de embeddings):
+${JSON.stringify(candidateGroups, null, 2)}
+
+Analiza la intención de búsqueda de la keyword y determina cuál grupo es más apropiado.
+
+Responde SOLO con un objeto JSON válido:
+{
+  "selectedGroupIndex": 2,
+  "confidence": 0.85,
+  "reason": "La keyword busca dupes de Good Girl, coincide perfectamente con el grupo"
+}
+
+Si NINGÚN grupo es apropiado (la keyword necesita un grupo nuevo), responde:
+{
+  "selectedGroupIndex": -1,
+  "confidence": 0.9,
+  "reason": "Esta keyword busca un producto diferente (Sauvage), requiere grupo nuevo",
+  "suggestedGroupName": "Dupe Sauvage Dior"
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 1024,
+      temperature: 0.2,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const responseText = message.content[0].text;
+    let classification;
+
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      classification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+    } catch (parseError) {
+      return res.status(500).json({
+        error: 'Error al parsear respuesta',
+        rawResponse: responseText
+      });
+    }
+
+    console.log('✅ Clasificación completada:', classification.selectedGroupIndex !== -1
+      ? `Grupo ${classification.selectedGroupIndex}`
+      : 'Crear nuevo grupo');
+
+    res.json({
+      success: true,
+      classification,
+      usage: {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en /api/classify-keywords:', error);
+    res.status(500).json({
+      error: 'Error interno: ' + error.message
+    });
+  }
+});
+
+// ENDPOINT 3: Generar conexiones padre-hijo
+// Crea jerarquías lógicas entre grupos
+app.post('/api/generate-hierarchies', async (req, res) => {
+  try {
+    const { groups } = req.body;
+
+    if (!Array.isArray(groups) || groups.length === 0) {
+      return res.status(400).json({ error: 'Se requiere un array de grupos' });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'ANTHROPIC_API_KEY no configurada'
+      });
+    }
+
+    console.log(`\n🌳 Generando jerarquías para ${groups.length} grupos...`);
+
+    const anthropic = new Anthropic({ apiKey });
+    const nicheContext = loadNicheContext();
+
+    const groupsData = groups.map((group, idx) => ({
+      index: idx,
+      name: group.name,
+      keywordsCount: group.keywords?.length || 0,
+      sampleKeywords: (group.keywords || []).slice(0, 5),
+      volume: group.volume || 0
+    }));
+
+    const contextSection = nicheContext ? `
+CONTEXTO DEL NICHO:
+${JSON.stringify(nicheContext, null, 2)}
+
+ESPECIALMENTE REVISA LA SECCIÓN: jerarquias_logicas
+` : '';
+
+    const prompt = `Eres un experto en arquitectura de información y SEO. Debes crear conexiones padre-hijo entre grupos de keywords.
+
+${contextSection}
+
+REGLAS PARA JERARQUÍAS:
+1. Un grupo PADRE debe ser una categoría/listado general
+2. Los grupos HIJOS deben ser productos/subcategorías específicas que pertenecen al padre
+3. Ejemplos VÁLIDOS:
+   - Padre: "Dupes Carolina Herrera" → Hijos: ["Dupe Good Girl", "Dupe 212 VIP"]
+   - Padre: "Perfumes Dulces Mujer" → Hijos: ["Dupe Good Girl", "Dupe La Vie Est Belle"]
+4. NO crear jerarquías si los grupos son del mismo nivel de especificidad
+5. Solo crear jerarquías cuando tenga sentido semántico Y de arquitectura web
+
+GRUPOS DISPONIBLES:
+${JSON.stringify(groupsData, null, 2)}
+
+Responde SOLO con un objeto JSON válido:
+{
+  "hierarchies": [
+    {
+      "parentIndex": 0,
+      "childrenIndices": [3, 5, 8],
+      "reason": "El grupo 0 es categoría general, los hijos son productos específicos de esa categoría",
+      "confidence": 0.9
+    }
+  ]
+}
+
+Si no hay jerarquías válidas, retorna: {"hierarchies": []}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 4096,
+      temperature: 0.3,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const responseText = message.content[0].text;
+    let hierarchySuggestions;
+
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      hierarchySuggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+    } catch (parseError) {
+      return res.status(500).json({
+        error: 'Error al parsear respuesta',
+        rawResponse: responseText
+      });
+    }
+
+    console.log('✅ Jerarquías generadas:', hierarchySuggestions.hierarchies?.length || 0);
+
+    res.json({
+      success: true,
+      suggestions: hierarchySuggestions,
+      usage: {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en /api/generate-hierarchies:', error);
+    res.status(500).json({
+      error: 'Error interno: ' + error.message
     });
   }
 });
