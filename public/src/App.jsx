@@ -753,36 +753,65 @@ function App(){
       console.log(`📊 Analizando ${onlyGroups.length} grupos...`);
 
       // PASO 1: Calcular embedding promedio por grupo
-      setSuccess('Calculando embeddings promedio por grupo...');
-      console.log('\n1️⃣ Calculando embeddings promedio por grupo...');
+      setSuccess('Obteniendo embeddings de todas las keywords...');
+      console.log('\n1️⃣ Obteniendo embeddings de todas las keywords en batches...');
 
-      const groupsWithEmbeddings = [];
-      for (const group of onlyGroups) {
+      // 1.1 Recolectar TODAS las keywords de TODOS los grupos
+      const groupKeywordMap = [];
+      const allKeywords = [];
+
+      onlyGroups.forEach((group, groupIdx) => {
         const keywords = (group.children || []).filter(child => !child.isGroup);
         if (keywords.length === 0) {
           console.warn(`   ⚠️ Grupo "${group.name}" sin keywords, saltando...`);
-          continue;
+          groupKeywordMap.push({ group, keywordIndices: [] });
+          return;
         }
 
+        const startIdx = allKeywords.length;
         const keywordTexts = keywords.map(kw => kw.keyword || kw.name);
-        const embeddings = await getEmbeddingsBatch(keywordTexts);
+        allKeywords.push(...keywordTexts);
+        const endIdx = allKeywords.length;
 
-        // Calcular promedio
-        const embeddingDim = embeddings[0].length;
+        groupKeywordMap.push({
+          group,
+          keywordIndices: Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
+        });
+      });
+
+      console.log(`   📊 Total: ${allKeywords.length} keywords de ${onlyGroups.length} grupos`);
+
+      // 1.2 Obtener TODOS los embeddings en una sola llamada (el servidor hace batching de 100)
+      setSuccess(`Generando embeddings de ${allKeywords.length} keywords...`);
+      const allEmbeddings = await getEmbeddingsBatch(allKeywords);
+      console.log(`   ✓ ${allEmbeddings.length} embeddings obtenidos`);
+
+      // 1.3 Calcular promedio (np.mean) para cada grupo
+      setSuccess('Calculando embeddings promedio por grupo...');
+      console.log('\n   Calculando promedios por grupo...');
+
+      const groupsWithEmbeddings = [];
+      const embeddingDim = allEmbeddings[0].length;
+
+      groupKeywordMap.forEach(({ group, keywordIndices }) => {
+        if (keywordIndices.length === 0) return;
+
+        // Calcular promedio de los embeddings de este grupo
         const avgEmbedding = new Array(embeddingDim).fill(0);
 
-        embeddings.forEach(emb => {
+        keywordIndices.forEach(idx => {
+          const emb = allEmbeddings[idx];
           emb.forEach((val, i) => {
             avgEmbedding[i] += val;
           });
         });
 
         avgEmbedding.forEach((_, i) => {
-          avgEmbedding[i] /= embeddings.length;
+          avgEmbedding[i] /= keywordIndices.length;
         });
 
         groupsWithEmbeddings.push({ group, embedding: avgEmbedding });
-      }
+      });
 
       console.log(`   ✓ ${groupsWithEmbeddings.length}/${onlyGroups.length} grupos con embeddings válidos`);
 

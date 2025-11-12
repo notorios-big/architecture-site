@@ -2,7 +2,8 @@
 // Lógica para detectar y fusionar grupos similares (Paso 2.5)
 
 /**
- * Calcula el embedding promedio de un grupo
+ * Calcula el embedding promedio de un grupo (LEGACY - no usado en el flujo optimizado)
+ * NOTA: La implementación optimizada obtiene todos los embeddings en batch primero
  * @param {Object} group - Grupo con children que contienen embeddings
  * @returns {Array<number>} - Vector promedio de dimensión 3072
  */
@@ -164,18 +165,86 @@ const mergeGroupsWithLLM = async (tree, threshold = 0.6, progressCallback = null
     console.log(`📊 Analizando ${groups.length} grupos...`);
 
     if (progressCallback) {
+      progressCallback('Obteniendo embeddings de todas las keywords...');
+    }
+
+    // PASO 1: Obtener embeddings de TODAS las keywords de TODOS los grupos (batching eficiente)
+    console.log('\n1️⃣ Obteniendo embeddings de todas las keywords en batches...');
+
+    // 1.1 Recolectar TODAS las keywords de TODOS los grupos
+    const groupKeywordMap = [];
+    const allKeywords = [];
+
+    groups.forEach((group, groupIdx) => {
+      const keywords = (group.children || []).filter(child => !child.isGroup);
+
+      if (keywords.length === 0) {
+        console.warn(`   ⚠️ Grupo "${group.name}" sin keywords, saltando...`);
+        groupKeywordMap.push({ group, originalIndex: groupIdx, keywordIndices: [] });
+        return;
+      }
+
+      const startIdx = allKeywords.length;
+      const keywordTexts = keywords.map(kw => kw.keyword || kw.name);
+      allKeywords.push(...keywordTexts);
+      const endIdx = allKeywords.length;
+
+      groupKeywordMap.push({
+        group,
+        originalIndex: groupIdx,
+        keywordIndices: Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
+      });
+    });
+
+    console.log(`   📊 Total: ${allKeywords.length} keywords de ${groups.length} grupos`);
+
+    if (allKeywords.length === 0) {
+      console.log('⚠️ No hay keywords para procesar');
+      return { merges: [] };
+    }
+
+    // 1.2 Obtener TODOS los embeddings en una sola llamada (el servidor hace batching de 100)
+    const serverBase = (window.location.protocol === 'file:' ||
+                       window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1')
+      ? 'http://localhost:3000'
+      : '';
+
+    if (progressCallback) {
+      progressCallback(`Generando embeddings de ${allKeywords.length} keywords...`);
+    }
+
+    const allEmbeddings = await window.getEmbeddingsBatch(allKeywords);
+    console.log(`   ✓ ${allEmbeddings.length} embeddings obtenidos`);
+
+    // 1.3 Calcular promedio (np.mean) para cada grupo
+    if (progressCallback) {
       progressCallback('Calculando embeddings promedio por grupo...');
     }
 
-    // PASO 1: Calcular embedding promedio por grupo
-    console.log('\n1️⃣ Calculando embeddings promedio por grupo...');
-    const groupsWithEmbeddings = groups.map((group, idx) => {
-      const embedding = computeGroupEmbedding(group);
-      if (!embedding) {
-        console.warn(`   ⚠️ Grupo ${idx} ("${group.name}") sin embedding válido`);
-      }
-      return { group, embedding, originalIndex: idx };
-    }).filter(item => item.embedding !== null);
+    console.log('\n   Calculando promedios por grupo...');
+    const groupsWithEmbeddings = [];
+    const embeddingDim = allEmbeddings[0].length;
+
+    groupKeywordMap.forEach(({ group, originalIndex, keywordIndices }) => {
+      if (keywordIndices.length === 0) return;
+
+      // Calcular promedio de los embeddings de este grupo
+      const avgEmbedding = new Array(embeddingDim).fill(0);
+
+      keywordIndices.forEach(idx => {
+        const emb = allEmbeddings[idx];
+        emb.forEach((val, i) => {
+          avgEmbedding[i] += val;
+        });
+      });
+
+      avgEmbedding.forEach((_, i) => {
+        avgEmbedding[i] /= keywordIndices.length;
+      });
+
+      groupsWithEmbeddings.push({ group, embedding: avgEmbedding, originalIndex });
+    });
 
     console.log(`   ✓ ${groupsWithEmbeddings.length}/${groups.length} grupos con embeddings válidos`);
 
