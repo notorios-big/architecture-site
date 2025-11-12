@@ -547,99 +547,168 @@ function App(){
       let updatedTree = [...tree];
       let classifiedCount = 0;
       let newGroupsCreated = 0;
+      const classifiedKeywordIds = new Set(); // Rastrear keywords clasificadas por ID
 
-      // 2. Clasificar cada keyword
-      for (let i = 0; i < keywordsToClassify.length; i++) {
-        const kw = keywordsToClassify[i];
-        const kwEmbed = keywordEmbeddings[i];
+      // 2. Procesar keywords en batches pequeños (5) para evitar límite de tokens
+      const BATCH_SIZE = 5;
+      const totalBatches = Math.ceil(keywordsToClassify.length / BATCH_SIZE);
 
-        setSuccess(`Clasificando ${i + 1}/${keywordsToClassify.length}...`);
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const batchStart = batchIdx * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, keywordsToClassify.length);
+        const currentBatch = keywordsToClassify.slice(batchStart, batchEnd);
 
-        // 2.1 Pre-filtro con embeddings (producto punto)
-        const similarities = groupEmbeddings.map((gEmbed, idx) => ({
-          index: idx,
-          similarity: cosine(kwEmbed, gEmbed),
-          group: otherGroups[idx]
-        }));
+        setSuccess(`Clasificando batch ${batchIdx + 1}/${totalBatches} (${currentBatch.length} keywords)...`);
+        console.log(`\n🎯 Procesando batch ${batchIdx + 1}/${totalBatches}: ${currentBatch.length} keywords`);
 
-        // 2.2 Filtrar grupos con similitud > 0.3
-        const candidates = similarities
-          .filter(s => s.similarity > 0.3)
-          .sort((a, b) => b.similarity - a.similarity)
-          .slice(0, 40); // Máximo 40 candidatos
+        // 2.1 Preparar datos del batch con pre-filtro de embeddings
+        const keywordsBatch = currentBatch.map((kw, localIdx) => {
+          const globalIdx = batchStart + localIdx;
+          const kwEmbed = keywordEmbeddings[globalIdx];
 
-        if (candidates.length === 0) {
-          console.log(`⚠️ Keyword "${kw.keyword}" sin candidatos válidos, se mantiene en LLM-POR-CLASIFICAR`);
+          // Pre-filtro con embeddings y threshold adaptativo
+          const similarities = groupEmbeddings.map((gEmbed, idx) => ({
+            index: idx,
+            similarity: cosine(kwEmbed, gEmbed),
+            group: otherGroups[idx]
+          }));
+
+          // Threshold adaptativo MUY agresivo para evitar límite de tokens
+          const candidatesLow = similarities.filter(s => s.similarity > 0.3).length;
+          let adaptiveThreshold = 0.3;
+
+          if (candidatesLow > 30) {
+            adaptiveThreshold = 0.6; // Muy estricto si hay muchos candidatos
+          } else if (candidatesLow > 15) {
+            adaptiveThreshold = 0.5; // Estricto si hay bastantes
+          }
+
+          const allCandidates = similarities
+            .filter(s => s.similarity > adaptiveThreshold)
+            .sort((a, b) => b.similarity - a.similarity);
+
+          console.log(`   📊 "${kw.keyword}": ${allCandidates.length} candidatos (threshold: ${adaptiveThreshold})`);
+          if (adaptiveThreshold > 0.3) {
+            console.log(`      → Threshold adaptativo: ${candidatesLow} candidatos con 0.3 → usando ${adaptiveThreshold}`);
+          }
+
+          if (allCandidates.length === 0) {
+            return null; // Se filtrará después
+          }
+
+          // Limitar a top 15 para control estricto de tokens
+          const candidates = allCandidates.slice(0, 15);
+          if (allCandidates.length > 15) {
+            console.log(`      → Limitando a top 15 de ${allCandidates.length} candidatos`);
+          }
+
+          // Preparar candidatos para el LLM (solo 2 samples por grupo para máximo ahorro)
+          const candidateGroups = candidates.map((c, mappedIndex) => ({
+            index: mappedIndex,
+            name: c.group.name,
+            similarity: c.similarity,
+            sampleKeywords: (c.group.children || [])
+              .filter(child => !child.isGroup)
+              .slice(0, 2) // Solo 2 samples para control estricto de tokens
+              .map(child => child.keyword || child.name)
+          }));
+
+          return {
+            keyword: kw.keyword,
+            keywordObj: kw,
+            candidateGroups,
+            candidatesRaw: candidates // Guardamos los candidatos originales para mapeo
+          };
+        }).filter(Boolean); // Remover nulls (keywords sin candidatos)
+
+        if (keywordsBatch.length === 0) {
+          console.log(`   ⚠️ Batch sin candidatos válidos, saltando...`);
           continue;
         }
 
-        // 2.3 Preparar datos para el LLM
-        const candidateGroups = candidates.map(c => ({
-          index: c.index,
-          name: c.group.name,
-          similarity: c.similarity,
-          sampleKeywords: (c.group.children || [])
-            .filter(child => !child.isGroup)
-            .slice(0, 5)
-            .map(child => child.keyword || child.name)
-        }));
-
-        // 2.4 Llamar al LLM para decisión final
-        const resp = await fetch(`${serverBase}/api/classify-keywords`, {
+        // 2.2 Llamar al LLM con el batch
+        const resp = await fetch(`${serverBase}/api/classify-keywords-batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            keyword: kw.keyword,
-            candidateGroups
-          })
+          body: JSON.stringify({ keywordsBatch })
         });
 
         if (!resp.ok) {
-          console.warn(`Error clasificando "${kw.keyword}", se mantiene en LLM-POR-CLASIFICAR`);
+          console.warn(`⚠️ Error clasificando batch ${batchIdx + 1}, saltando...`);
           continue;
         }
 
         const result = await resp.json();
-        const classification = result.classification;
+        const classifications = result.classifications || [];
 
-        // 2.5 Aplicar clasificación
-        if (classification.selectedGroupIndex !== -1) {
-          // Mover a grupo existente
-          const targetGroup = candidates[classification.selectedGroupIndex].group;
-          const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
+        console.log(`   ✅ Recibidas ${classifications.length} clasificaciones del LLM`);
 
-          if (targetIdx !== -1) {
-            updatedTree[targetIdx] = {
-              ...updatedTree[targetIdx],
-              children: [...(updatedTree[targetIdx].children || []), kw]
+        // 2.3 Aplicar clasificaciones
+        for (const classification of classifications) {
+          const batchItem = keywordsBatch[classification.batchIndex];
+          if (!batchItem) continue;
+
+          const kw = batchItem.keywordObj;
+          const candidates = batchItem.candidatesRaw;
+
+          console.log(`   → Clasificando "${kw.keyword}": grupo ${classification.selectedGroupIndex}`);
+
+          if (classification.selectedGroupIndex !== -1) {
+            // Validar índice
+            if (classification.selectedGroupIndex >= candidates.length) {
+              console.warn(`      ⚠️ Índice inválido ${classification.selectedGroupIndex}, saltando...`);
+              continue;
+            }
+
+            // Mover a grupo existente
+            const targetCandidate = candidates[classification.selectedGroupIndex];
+            const targetGroup = targetCandidate.group;
+            const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
+
+            if (targetIdx !== -1) {
+              updatedTree[targetIdx] = {
+                ...updatedTree[targetIdx],
+                children: [...(updatedTree[targetIdx].children || []), kw]
+              };
+              classifiedKeywordIds.add(kw.id);
+              classifiedCount++;
+              console.log(`      ✅ Movida a "${targetGroup.name}"`);
+            }
+          } else if (classification.suggestedGroupName) {
+            // Crear nuevo grupo
+            const newGroup = {
+              id: uid('group'),
+              name: classification.suggestedGroupName,
+              isGroup: true,
+              collapsed: false,
+              children: [kw]
             };
+            updatedTree.push(newGroup);
+
+            // Generar embedding para el nuevo grupo
+            otherGroups.push(newGroup);
+            const newGroupEmbed = await getEmbeddingsBatch([newGroup.name]);
+            groupEmbeddings.push(newGroupEmbed[0]);
+
+            classifiedKeywordIds.add(kw.id);
+            newGroupsCreated++;
             classifiedCount++;
+
+            console.log(`      ✨ Nuevo grupo creado: "${classification.suggestedGroupName}"`);
           }
-        } else if (classification.suggestedGroupName) {
-          // Crear nuevo grupo
-          const newGroup = {
-            id: uid('group'),
-            name: classification.suggestedGroupName,
-            isGroup: true,
-            collapsed: false,
-            children: [kw]
-          };
-          updatedTree.push(newGroup);
-          otherGroups.push(newGroup);
-          newGroupsCreated++;
-          classifiedCount++;
         }
 
-        // Pequeña pausa para no saturar
-        if (i < keywordsToClassify.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+        // Pequeña pausa entre batches
+        if (batchIdx < totalBatches - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
 
       // 3. Actualizar grupo LLM-POR-CLASIFICAR (remover clasificados)
       const classifyGroupIdx = updatedTree.findIndex(n => n.id === toClassifyGroup.id);
       if (classifyGroupIdx !== -1) {
-        const remainingKeywords = keywordsToClassify.filter((_, idx) => idx >= classifiedCount);
+        // Filtrar keywords que NO fueron clasificadas
+        const remainingKeywords = keywordsToClassify.filter(kw => !classifiedKeywordIds.has(kw.id));
 
         if (remainingKeywords.length === 0) {
           // Eliminar el grupo si está vacío
@@ -650,6 +719,8 @@ function App(){
             children: remainingKeywords
           };
         }
+
+        console.log(`📊 Keywords restantes en LLM-POR-CLASIFICAR: ${remainingKeywords.length}`);
       }
 
       const sortedTree = sortGroupChildren(updatedTree);
