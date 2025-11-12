@@ -893,33 +893,57 @@ function App(){
         return;
       }
 
-      // PASO 3: Evaluar cliques con LLM
-      setSuccess(`Evaluando ${cliques.length} cliques con LLM...`);
+      // PASO 3: Evaluar cliques con LLM (en batches para evitar timeouts)
       console.log(`\n3️⃣ Evaluando ${cliques.length} cliques con Sonnet...`);
 
-      const resp = await fetch(`${serverBase}/api/merge-groups`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cliques: cliques.map(clique => clique.map(idx =>
-            onlyGroups.findIndex(g => g.id === groupsWithEmbeddings[idx].group.id)
-          )),
-          groups: onlyGroups.map(g => ({
-            name: g.name,
-            volume: nodeVolume(g),
-            children: g.children
-          }))
-        })
-      });
+      const BATCH_SIZE = 20; // Procesar 20 cliques a la vez
+      const totalBatches = Math.ceil(cliques.length / BATCH_SIZE);
+      const allMerges = [];
 
-      if (!resp.ok) {
-        let msg = 'HTTP ' + resp.status;
-        try { const e = await resp.json(); msg = e?.error || msg; } catch {}
-        throw new Error('Error al fusionar grupos: ' + msg);
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const batchStart = batchIdx * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, cliques.length);
+        const batchCliques = cliques.slice(batchStart, batchEnd);
+
+        setSuccess(`Evaluando batch ${batchIdx + 1}/${totalBatches} (${batchCliques.length} cliques)...`);
+        console.log(`\n   Batch ${batchIdx + 1}/${totalBatches}: ${batchCliques.length} cliques`);
+
+        const resp = await fetch(`${serverBase}/api/merge-groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cliques: batchCliques.map(clique => clique.map(idx =>
+              onlyGroups.findIndex(g => g.id === groupsWithEmbeddings[idx].group.id)
+            )),
+            groups: onlyGroups.map(g => ({
+              name: g.name,
+              volume: nodeVolume(g),
+              children: g.children
+            })),
+            batchOffset: batchStart // Para mapear correctamente los índices
+          })
+        });
+
+        if (!resp.ok) {
+          let msg = 'HTTP ' + resp.status;
+          try { const e = await resp.json(); msg = e?.error || msg; } catch {}
+          console.error(`⚠️ Error en batch ${batchIdx + 1}, continuando...`);
+          continue; // Continuar con siguientes batches
+        }
+
+        const result = await resp.json();
+        const batchMerges = result.merges || [];
+
+        console.log(`   ✓ Batch ${batchIdx + 1}: ${batchMerges.length} fusiones sugeridas`);
+        allMerges.push(...batchMerges);
+
+        // Pausa entre batches para no saturar
+        if (batchIdx < totalBatches - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
 
-      const result = await resp.json();
-      const merges = result.merges || [];
+      const merges = allMerges;
 
       console.log(`\n✅ Evaluación completada: ${merges.length} fusiones sugeridas`);
       merges.forEach((merge, idx) => {
