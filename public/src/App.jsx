@@ -733,6 +733,315 @@ function App(){
     }
   };
 
+  // FUNCIÓN 2.5: Fusionar grupos similares
+  const mergeSimilarGroups = async (threshold = 0.6) => {
+    const onlyGroups = tree.filter(node => node.isGroup);
+
+    if (onlyGroups.length < 2) {
+      setError('Se necesitan al menos 2 grupos para detectar fusiones.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      console.log('\n════════════════════════════════════════════════════');
+      console.log('🔄 PASO 2.5: DETECTAR Y FUSIONAR GRUPOS SIMILARES');
+      console.log('════════════════════════════════════════════════════\n');
+
+      console.log(`📊 Analizando ${onlyGroups.length} grupos...`);
+
+      // PASO 1: Calcular embedding promedio por grupo
+      setSuccess('Obteniendo embeddings de todas las keywords...');
+      console.log('\n1️⃣ Obteniendo embeddings de todas las keywords en batches...');
+
+      // 1.1 Recolectar TODAS las keywords de TODOS los grupos
+      const groupKeywordMap = [];
+      const allKeywords = [];
+
+      onlyGroups.forEach((group, groupIdx) => {
+        const keywords = (group.children || []).filter(child => !child.isGroup);
+        if (keywords.length === 0) {
+          console.warn(`   ⚠️ Grupo "${group.name}" sin keywords, saltando...`);
+          groupKeywordMap.push({ group, keywordIndices: [] });
+          return;
+        }
+
+        const startIdx = allKeywords.length;
+        const keywordTexts = keywords.map(kw => kw.keyword || kw.name);
+        allKeywords.push(...keywordTexts);
+        const endIdx = allKeywords.length;
+
+        groupKeywordMap.push({
+          group,
+          keywordIndices: Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
+        });
+      });
+
+      console.log(`   📊 Total: ${allKeywords.length} keywords de ${onlyGroups.length} grupos`);
+
+      // 1.2 Obtener TODOS los embeddings en una sola llamada (el servidor hace batching de 100)
+      setSuccess(`Generando embeddings de ${allKeywords.length} keywords...`);
+      const allEmbeddings = await getEmbeddingsBatch(allKeywords);
+      console.log(`   ✓ ${allEmbeddings.length} embeddings obtenidos`);
+
+      // 1.3 Calcular promedio (np.mean) para cada grupo
+      setSuccess('Calculando embeddings promedio por grupo...');
+      console.log('\n   Calculando promedios por grupo...');
+
+      const groupsWithEmbeddings = [];
+      const embeddingDim = allEmbeddings[0].length;
+
+      groupKeywordMap.forEach(({ group, keywordIndices }) => {
+        if (keywordIndices.length === 0) return;
+
+        // Calcular promedio de los embeddings de este grupo
+        const avgEmbedding = new Array(embeddingDim).fill(0);
+
+        keywordIndices.forEach(idx => {
+          const emb = allEmbeddings[idx];
+          emb.forEach((val, i) => {
+            avgEmbedding[i] += val;
+          });
+        });
+
+        avgEmbedding.forEach((_, i) => {
+          avgEmbedding[i] /= keywordIndices.length;
+        });
+
+        groupsWithEmbeddings.push({ group, embedding: avgEmbedding });
+      });
+
+      console.log(`   ✓ ${groupsWithEmbeddings.length}/${onlyGroups.length} grupos con embeddings válidos`);
+
+      if (groupsWithEmbeddings.length < 2) {
+        setSuccess('No hay suficientes grupos con embeddings para fusionar');
+        setLoading(false);
+        return;
+      }
+
+      // PASO 2: Construir matriz de similitud y encontrar cliques
+      setSuccess('Construyendo grafo de similitud...');
+      console.log('\n2️⃣ Construyendo grafo de similitud y encontrando cliques...');
+      console.log(`🔍 Buscando cliques con threshold ${threshold}...`);
+
+      const embeddings = groupsWithEmbeddings.map(item => item.embedding);
+      const n = embeddings.length;
+
+      // Construir matriz de similitud
+      const similarities = [];
+      for (let i = 0; i < n; i++) {
+        similarities[i] = [];
+        for (let j = 0; j < n; j++) {
+          if (i === j) {
+            similarities[i][j] = 1.0;
+          } else if (j < i) {
+            similarities[i][j] = similarities[j][i];
+          } else {
+            similarities[i][j] = cosine(embeddings[i], embeddings[j]);
+          }
+        }
+      }
+
+      // Calcular centralidad
+      const degrees = groupsWithEmbeddings.map((_, i) => {
+        const degree = similarities[i].filter(s => s >= threshold).length - 1;
+        return { index: i, degree };
+      });
+
+      degrees.sort((a, b) => b.degree - a.degree);
+
+      // Encontrar cliques con algoritmo greedy
+      const cliques = [];
+      const assigned = new Set();
+
+      for (const { index: i } of degrees) {
+        if (assigned.has(i)) continue;
+
+        const clique = [i];
+        assigned.add(i);
+
+        for (const { index: j } of degrees) {
+          if (assigned.has(j)) continue;
+
+          let isClique = true;
+          for (const memberIdx of clique) {
+            if (similarities[memberIdx][j] < threshold) {
+              isClique = false;
+              break;
+            }
+          }
+
+          if (isClique) {
+            clique.push(j);
+            assigned.add(j);
+          }
+        }
+
+        if (clique.length >= 2) {
+          cliques.push(clique);
+          console.log(`   ✓ Clique encontrado: ${clique.length} grupos (índices: ${clique.join(', ')})`);
+        }
+      }
+
+      console.log(`✅ Total: ${cliques.length} cliques encontrados`);
+
+      if (cliques.length === 0) {
+        setSuccess('No se encontraron grupos similares para fusionar');
+        setLoading(false);
+        return;
+      }
+
+      // PASO 3: Evaluar cliques con LLM (en batches para evitar timeouts)
+      console.log(`\n3️⃣ Evaluando ${cliques.length} cliques con Sonnet...`);
+
+      const BATCH_SIZE = 20; // Procesar 20 cliques a la vez
+      const totalBatches = Math.ceil(cliques.length / BATCH_SIZE);
+      const allMerges = [];
+
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const batchStart = batchIdx * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, cliques.length);
+        const batchCliques = cliques.slice(batchStart, batchEnd);
+
+        setSuccess(`Evaluando batch ${batchIdx + 1}/${totalBatches} (${batchCliques.length} cliques)...`);
+        console.log(`\n   Batch ${batchIdx + 1}/${totalBatches}: ${batchCliques.length} cliques`);
+
+        const resp = await fetch(`${serverBase}/api/merge-groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cliques: batchCliques.map(clique => clique.map(idx =>
+              onlyGroups.findIndex(g => g.id === groupsWithEmbeddings[idx].group.id)
+            )),
+            groups: onlyGroups.map(g => ({
+              name: g.name,
+              volume: nodeVolume(g),
+              children: g.children
+            })),
+            batchOffset: batchStart // Para mapear correctamente los índices
+          })
+        });
+
+        if (!resp.ok) {
+          let msg = 'HTTP ' + resp.status;
+          try { const e = await resp.json(); msg = e?.error || msg; } catch {}
+          console.error(`⚠️ Error en batch ${batchIdx + 1}, continuando...`);
+          continue; // Continuar con siguientes batches
+        }
+
+        const result = await resp.json();
+        const batchMerges = result.merges || [];
+
+        console.log(`   ✓ Batch ${batchIdx + 1}: ${batchMerges.length} fusiones sugeridas`);
+        allMerges.push(...batchMerges);
+
+        // Pausa entre batches para no saturar
+        if (batchIdx < totalBatches - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      const merges = allMerges;
+
+      console.log(`\n✅ Evaluación completada: ${merges.length} fusiones sugeridas`);
+      merges.forEach((merge, idx) => {
+        console.log(`   ${idx + 1}. "${merge.suggestedName}" (${merge.groupIndices.length} grupos, confianza: ${merge.confidence})`);
+        console.log(`      Razón: ${merge.reason}`);
+      });
+
+      if (merges.length === 0) {
+        setSuccess('No se encontraron fusiones válidas según el LLM');
+        setLoading(false);
+        return;
+      }
+
+      // PASO 4: Aplicar fusiones
+      console.log(`\n4️⃣ Aplicando ${merges.length} fusiones...`);
+      let updatedTree = [...tree];
+
+      // IMPORTANTE: Crear un mapa de ID -> grupo antes de empezar a fusionar
+      // porque los índices cambian después de cada fusión
+      const groupIdMap = new Map();
+      onlyGroups.forEach((group, idx) => {
+        groupIdMap.set(idx, group.id);
+      });
+
+      merges.forEach((merge, mergeIdx) => {
+        console.log(`\n   Fusión ${mergeIdx + 1}/${merges.length}:`);
+
+        const groupIndices = merge.groupIndices;
+
+        // Convertir índices a IDs y buscar grupos en el árbol actual
+        const groupIds = groupIndices.map(idx => groupIdMap.get(idx)).filter(Boolean);
+        const groupsToMerge = groupIds
+          .map(id => updatedTree.find(n => n.id === id))
+          .filter(Boolean);
+
+        if (groupsToMerge.length < 2) {
+          console.warn(`   ⚠️ Solo se encontraron ${groupsToMerge.length} grupos, saltando...`);
+          return;
+        }
+
+        console.log(`   Fusionando: ${groupsToMerge.map(g => `"${g.name}"`).join(' + ')}`);
+        console.log(`   Nuevo nombre: "${merge.suggestedName}"`);
+
+        // Combinar keywords
+        const mergedChildren = [];
+        const seenKeywords = new Set();
+
+        groupsToMerge.forEach(group => {
+          if (group.children) {
+            group.children.forEach(child => {
+              const kwText = child.keyword || child.name || '';
+              if (!child.isGroup && kwText && !seenKeywords.has(kwText.toLowerCase())) {
+                seenKeywords.add(kwText.toLowerCase());
+                mergedChildren.push(child);
+              }
+            });
+          }
+        });
+
+        const totalVolume = mergedChildren.reduce((sum, kw) => sum + (kw.volume || 0), 0);
+
+        // Crear grupo fusionado
+        const mergedGroup = {
+          id: uid('group'),
+          name: merge.suggestedName,
+          isGroup: true,
+          collapsed: false,
+          children: mergedChildren,
+          volume: totalVolume
+        };
+
+        console.log(`   ✓ Fusionado: ${mergedChildren.length} keywords, volumen: ${totalVolume.toLocaleString()}`);
+
+        // Eliminar grupos originales y agregar fusionado
+        const groupIdsToRemove = groupsToMerge.map(g => g.id);
+        updatedTree = updatedTree.filter(n => !groupIdsToRemove.includes(n.id));
+        updatedTree.push(mergedGroup);
+      });
+
+      const sortedTree = sortGroupChildren(updatedTree);
+      setTree(sortedTree);
+
+      const totalGroupsMerged = merges.reduce((sum, m) => sum + m.groupIndices.length, 0);
+      setSuccess(`Fusión completada: ${merges.length} fusiones realizadas (${totalGroupsMerged} grupos → ${merges.length} grupos)`);
+
+      console.log(`\n✅ Fusión de grupos completada`);
+      console.log(`   - ${merges.length} fusiones realizadas`);
+      console.log(`   - ${totalGroupsMerged} grupos originales → ${merges.length} grupos fusionados`);
+      console.log(`   - Árbol final: ${sortedTree.length} nodos de nivel superior`);
+
+    } catch (err) {
+      console.error('❌ Error en mergeSimilarGroups:', err);
+      setError('Error al fusionar grupos: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // FUNCIÓN 3: Generar jerarquías padre-hijo
   const generateHierarchies = async () => {
     const onlyGroups = tree.filter(node => node.isGroup);
@@ -1063,6 +1372,12 @@ function App(){
                       {loading? '🎯 Clasificando...':'🎯 2. Clasificar Keywords'}
                     </button>
                   )}
+
+                  <button onClick={() => mergeSimilarGroups(0.7)} disabled={loading}
+                          className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-lg hover:from-orange-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                          data-tooltip="Detecta y fusiona grupos similares usando cliques y LLM (threshold 0.7 - más estricto)">
+                    {loading? '🔄 Fusionando...':'🔄 2.5 Fusionar Grupos'}
+                  </button>
 
                   <button onClick={generateHierarchies} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
