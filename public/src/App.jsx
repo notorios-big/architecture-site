@@ -549,8 +549,8 @@ function App(){
       let newGroupsCreated = 0;
       const classifiedKeywordIds = new Set(); // Rastrear keywords clasificadas por ID
 
-      // 2. Procesar keywords en batches de 15 (threshold adaptativo controla tamaño)
-      const BATCH_SIZE = 15;
+      // 2. Procesar keywords en batches pequeños (5) para evitar límite de tokens
+      const BATCH_SIZE = 5;
       const totalBatches = Math.ceil(keywordsToClassify.length / BATCH_SIZE);
 
       for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
@@ -573,37 +573,43 @@ function App(){
             group: otherGroups[idx]
           }));
 
-          // Threshold adaptativo: si hay muchos candidatos con 0.3, ser más estricto
+          // Threshold adaptativo MUY agresivo para evitar límite de tokens
           const candidatesLow = similarities.filter(s => s.similarity > 0.3).length;
-          const adaptiveThreshold = candidatesLow > 50 ? 0.5 : 0.3;
+          let adaptiveThreshold = 0.3;
+
+          if (candidatesLow > 30) {
+            adaptiveThreshold = 0.6; // Muy estricto si hay muchos candidatos
+          } else if (candidatesLow > 15) {
+            adaptiveThreshold = 0.5; // Estricto si hay bastantes
+          }
 
           const allCandidates = similarities
             .filter(s => s.similarity > adaptiveThreshold)
             .sort((a, b) => b.similarity - a.similarity);
 
           console.log(`   📊 "${kw.keyword}": ${allCandidates.length} candidatos (threshold: ${adaptiveThreshold})`);
-          if (candidatesLow > 50) {
-            console.log(`      → Threshold adaptativo: ${candidatesLow} candidatos con 0.3 → usando 0.5`);
+          if (adaptiveThreshold > 0.3) {
+            console.log(`      → Threshold adaptativo: ${candidatesLow} candidatos con 0.3 → usando ${adaptiveThreshold}`);
           }
 
           if (allCandidates.length === 0) {
             return null; // Se filtrará después
           }
 
-          // Limitar a top 30 (más generoso ya que el threshold adaptativo filtra bien)
-          const candidates = allCandidates.slice(0, 30);
-          if (allCandidates.length > 30) {
-            console.log(`      → Limitando a top 30 de ${allCandidates.length} candidatos`);
+          // Limitar a top 15 para control estricto de tokens
+          const candidates = allCandidates.slice(0, 15);
+          if (allCandidates.length > 15) {
+            console.log(`      → Limitando a top 15 de ${allCandidates.length} candidatos`);
           }
 
-          // Preparar candidatos para el LLM (solo 3 samples por grupo)
+          // Preparar candidatos para el LLM (solo 2 samples por grupo para máximo ahorro)
           const candidateGroups = candidates.map((c, mappedIndex) => ({
             index: mappedIndex,
             name: c.group.name,
             similarity: c.similarity,
             sampleKeywords: (c.group.children || [])
               .filter(child => !child.isGroup)
-              .slice(0, 3) // Reducido de 5 a 3 para ahorrar tokens
+              .slice(0, 2) // Solo 2 samples para control estricto de tokens
               .map(child => child.keyword || child.name)
           }));
 
