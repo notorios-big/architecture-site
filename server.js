@@ -173,7 +173,9 @@ OBJETIVO:
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
 
-Responde SOLO con un objeto JSON válido (sin markdown, sin explicaciones):
+IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown (sin \`\`\`json), NO agregues explicaciones.
+
+FORMATO DE RESPUESTA:
 {
   "cleanedGroups": [
     {
@@ -192,12 +194,14 @@ Responde SOLO con un objeto JSON válido (sin markdown, sin explicaciones):
   ]
 }
 
-IMPORTANTE:
+REGLAS:
 - Solo incluye grupos que necesiten limpieza
 - toClassify debe contener TODAS las keywords removidas de todos los grupos CON SU VOLUMEN
 - removeKeywords debe incluir el objeto completo de cada keyword con su volumen
 - Si un grupo está bien, no lo incluyas en cleanedGroups
-- NO sugieras títulos, trabajaremos con las keywords de mayor volumen`;
+- NO sugieras títulos, trabajaremos con las keywords de mayor volumen
+
+Responde AHORA con el JSON (sin texto adicional):`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
@@ -321,23 +325,29 @@ ${JSON.stringify(candidateGroups, null, 2)}
 
 Analiza la intención de búsqueda de la keyword y determina cuál grupo es más apropiado.
 
-Responde SOLO con un objeto JSON válido:
+IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+
+FORMATO DE RESPUESTA:
+
+Si encuentras un grupo apropiado:
 {
   "selectedGroupIndex": 2,
   "confidence": 0.85,
   "reason": "La keyword busca dupes de Good Girl, coincide perfectamente con el grupo"
 }
 
-Si NINGÚN grupo es apropiado (la keyword necesita un grupo nuevo), responde:
+Si NINGÚN grupo es apropiado:
 {
   "selectedGroupIndex": -1,
   "confidence": 0.9,
   "reason": "Esta keyword busca un producto diferente (Sauvage), requiere grupo nuevo",
   "suggestedGroupName": "Dupe Sauvage Dior"
-}`;
+}
+
+Responde AHORA con el JSON (sin texto adicional):`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-haiku-4-5',
       max_tokens: 1024,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }]
@@ -430,7 +440,11 @@ REGLAS PARA JERARQUÍAS:
 GRUPOS DISPONIBLES:
 ${JSON.stringify(groupsData, null, 2)}
 
-Responde SOLO con un objeto JSON válido:
+IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+
+FORMATO DE RESPUESTA:
+
+Si hay jerarquías válidas:
 {
   "hierarchies": [
     {
@@ -442,10 +456,15 @@ Responde SOLO con un objeto JSON válido:
   ]
 }
 
-Si no hay jerarquías válidas, retorna: {"hierarchies": []}`;
+Si NO hay jerarquías válidas:
+{
+  "hierarchies": []
+}
+
+Responde AHORA con el JSON (sin texto adicional):`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-haiku-4-5',
       max_tokens: 4096,
       temperature: 0.3,
       messages: [{ role: 'user', content: prompt }]
