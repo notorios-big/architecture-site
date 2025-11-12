@@ -1349,9 +1349,9 @@ function App(){
                     </button>
                   )}
 
-                  <button onClick={() => mergeSimilarGroups(0.6)} disabled={loading}
+                  <button onClick={() => mergeSimilarGroups(0.7)} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-lg hover:from-orange-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
-                          data-tooltip="Detecta y fusiona grupos similares usando cliques y LLM (threshold 0.6)">
+                          data-tooltip="Detecta y fusiona grupos similares usando cliques y LLM (threshold 0.7 - más estricto)">
                     {loading? '🔄 Fusionando...':'🔄 2.5 Fusionar Grupos'}
                   </button>
 

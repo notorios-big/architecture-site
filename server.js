@@ -694,22 +694,35 @@ ${JSON.stringify(nicheContext, null, 2)}
 ${contextSection}
 
 CONTEXTO:
-- Un "clique" es un conjunto de grupos donde TODOS tienen alta similitud semántica entre sí (>= 0.6)
+- Un "clique" es un conjunto de grupos donde TODOS tienen alta similitud semántica entre sí
 - Debes decidir si fusionar cada clique en un solo grupo o mantenerlos separados
-- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda y URL
+- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda Y la MISMA URL
+- SÉ EXTREMADAMENTE ESTRICTO: La fusión es PERMANENTE y no se puede deshacer fácilmente
 
-CRITERIOS PARA FUSIONAR:
-✅ SÍ fusionar si:
-- Buscan exactamente el mismo producto/servicio
-- Podrían responderse con la MISMA landing page
-- Son sinónimos o variaciones del mismo término
-- Ejemplos: ["Dupe Good Girl", "Clon Good Girl Carolina Herrera", "Réplica Good Girl"]
+CRITERIOS ESTRICTOS PARA FUSIONAR:
+✅ SÍ fusionar si TODOS se cumplen:
+1. Buscan EXACTAMENTE el mismo producto/servicio específico
+2. Son sinónimos o variaciones del MISMO término
+3. NO hay diferencias de género (hombre vs mujer)
+4. NO mezclan intenciones (transaccional vs informativa)
+5. Podrían responderse con la MISMA landing page
+6. Ejemplos válidos:
+   - ["Dupe Good Girl", "Clon Good Girl", "Réplica Good Girl"] ✅
+   - ["Dupe Sauvage", "Copia Sauvage Dior", "Imitación Sauvage"] ✅
 
-❌ NO fusionar si:
-- Buscan productos diferentes (aunque sean del mismo tipo)
-- Requieren URLs distintas
-- Son categorías vs productos específicos
-- Ejemplos NO fusionar: ["Dupe Good Girl", "Dupe 212 VIP"] → diferentes productos
+❌ NO fusionar si CUALQUIERA se cumple:
+1. Buscan productos DIFERENTES (aunque sean del mismo tipo)
+   - ["Dupe Good Girl", "Dupe 212 VIP"] ❌ → productos distintos
+2. Diferentes géneros mezclados
+   - ["Perfumes hombre baratos", "Ofertas perfumes mujer"] ❌ → géneros distintos
+3. Intenciones diferentes
+   - ["Perfume hombre oferta", "Perfumes amaderados hombre"] ❌ → transaccional vs informativa
+4. Categorías vs productos específicos
+   - ["Perfumes Carolina Herrera", "Dupe Good Girl"] ❌ → categoría vs producto
+5. Características diferentes
+   - ["Perfumes dulces hombre", "Perfumes cítricos hombre"] ❌ → características opuestas
+
+REGLA DE ORO: Ante la duda, NO FUSIONAR. Es mejor tener grupos separados que mezclar incorrectamente.
 
 CLIQUES A EVALUAR:
 ${JSON.stringify(cliquesData, null, 2)}
