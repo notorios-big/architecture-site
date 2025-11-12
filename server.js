@@ -11,7 +11,7 @@ const INDEX_HTML = path.join(PUBLIC_DIR, 'index.html');
 
 // Middlewares básicos
 app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' })); // Aumentado para batches grandes
 
 // Endpoint para embeddings (usando API de OpenAI con batching)
 app.post('/api/embeddings', async (req, res) => {

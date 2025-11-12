@@ -549,8 +549,8 @@ function App(){
       let newGroupsCreated = 0;
       const classifiedKeywordIds = new Set(); // Rastrear keywords clasificadas por ID
 
-      // 2. Procesar keywords en batches de 15
-      const BATCH_SIZE = 15;
+      // 2. Procesar keywords en batches de 10 (reducido para evitar límite de tokens)
+      const BATCH_SIZE = 10;
       const totalBatches = Math.ceil(keywordsToClassify.length / BATCH_SIZE);
 
       for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
@@ -573,24 +573,30 @@ function App(){
             group: otherGroups[idx]
           }));
 
-          const candidates = similarities
+          const allCandidates = similarities
             .filter(s => s.similarity > 0.3)
             .sort((a, b) => b.similarity - a.similarity);
 
-          console.log(`   📊 "${kw.keyword}": ${candidates.length} candidatos (similitud > 0.3)`);
+          console.log(`   📊 "${kw.keyword}": ${allCandidates.length} candidatos (similitud > 0.3)`);
 
-          if (candidates.length === 0) {
+          if (allCandidates.length === 0) {
             return null; // Se filtrará después
           }
 
-          // Preparar candidatos para el LLM
+          // Limitar a top 20 candidatos para reducir tamaño del prompt
+          const candidates = allCandidates.slice(0, 20);
+          if (allCandidates.length > 20) {
+            console.log(`      → Limitando a top ${candidates.length} candidatos para el LLM`);
+          }
+
+          // Preparar candidatos para el LLM (solo 3 samples por grupo)
           const candidateGroups = candidates.map((c, mappedIndex) => ({
             index: mappedIndex,
             name: c.group.name,
             similarity: c.similarity,
             sampleKeywords: (c.group.children || [])
               .filter(child => !child.isGroup)
-              .slice(0, 5)
+              .slice(0, 3) // Reducido de 5 a 3 para ahorrar tokens
               .map(child => child.keyword || child.name)
           }));
 
