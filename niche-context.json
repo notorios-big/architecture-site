@@ -3,7 +3,7 @@
   "equivalencias": {
     "dupes": ["clones", "perfumes replica", "inspiraciones", "alternativas", "similares", "imitaciones", "versiones"],
     "mujer": ["mujeres", "femenino", "ella", "dama", "ladies", "women"],
-    "hombre": ["hombres", "masculino", "el", "caballero", "men"],
+    "hombre": ["hombres", "masculino", "el", "caballero", "men"]
   },
 
   "reglas_agrupacion": [
