@@ -4,7 +4,9 @@ const {
   IFolderOpen, IList, INetwork
 } = window;
 
-const Toolbar = ({
+const { memo } = React;
+
+const Toolbar = memo(({
   keywords,
   tree,
   threshold,
@@ -112,7 +114,7 @@ const Toolbar = ({
       </div>
     </div>
   );
-};
+});
 
 window.Toolbar = Toolbar;
 

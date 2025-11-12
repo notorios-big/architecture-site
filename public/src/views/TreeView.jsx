@@ -36,6 +36,10 @@ const TreeView = ({
   deleteNode,
   onDrop
 }) => {
+  // Optimización: límite de renderizado inicial para listas muy grandes
+  const INITIAL_RENDER_LIMIT = 100;
+  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
+
   // Usar refs para evitar re-renders durante el drag
   const dragOverRef = useRef(null);
   const dragElementsRef = useRef(new Map());
@@ -263,6 +267,18 @@ const TreeView = ({
     );
   });
 
+  // Memoizar los nodos a renderizar para evitar recálculos
+  const visibleNodes = useMemo(() => {
+    // Si hay pocos nodos, renderizar todos
+    if (tree.length <= INITIAL_RENDER_LIMIT) {
+      return tree;
+    }
+    // De lo contrario, aplicar límite
+    return tree.slice(0, renderLimit);
+  }, [tree, renderLimit, INITIAL_RENDER_LIMIT]);
+
+  const hasMoreNodes = tree.length > renderLimit;
+
   return (
     <div className="glass rounded-2xl p-6 shadow-2xl overflow-auto max-h-[calc(100vh-280px)] scrollbar-thin">
       {selectedNodes && selectedNodes.size > 0 && (
@@ -280,7 +296,30 @@ const TreeView = ({
           </button>
         </div>
       )}
-      {tree.map(n => <Node key={n.id} node={n}/>)}
+
+      {/* Mostrar advertencia de performance si hay muchos grupos */}
+      {tree.length > INITIAL_RENDER_LIMIT && renderLimit === INITIAL_RENDER_LIMIT && (
+        <div className="mb-4 p-3 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
+          <span className="text-yellow-800 text-sm">
+            <strong>Optimización de performance:</strong> Mostrando {INITIAL_RENDER_LIMIT} de {tree.length} grupos.
+            Los demás grupos están colapsados para mejor rendimiento.
+          </span>
+        </div>
+      )}
+
+      {visibleNodes.map(n => <Node key={n.id} node={n}/>)}
+
+      {/* Botón para cargar más nodos si hay más */}
+      {hasMoreNodes && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={() => setRenderLimit(prev => Math.min(prev + 50, tree.length))}
+            className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg font-medium hover:shadow-lg transition-all"
+          >
+            Cargar más grupos ({tree.length - renderLimit} restantes)
+          </button>
+        </div>
+      )}
     </div>
   );
 };
