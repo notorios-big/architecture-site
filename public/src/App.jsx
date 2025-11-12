@@ -547,6 +547,7 @@ function App(){
       let updatedTree = [...tree];
       let classifiedCount = 0;
       let newGroupsCreated = 0;
+      const classifiedKeywordIds = new Set(); // Rastrear keywords clasificadas por ID
 
       // 2. Clasificar cada keyword
       for (let i = 0; i < keywordsToClassify.length; i++) {
@@ -604,8 +605,20 @@ function App(){
 
         // 2.5 Aplicar clasificación
         if (classification.selectedGroupIndex !== -1) {
+          // Validar que el índice esté dentro del rango
+          if (classification.selectedGroupIndex >= candidates.length) {
+            console.warn(`⚠️ Índice inválido ${classification.selectedGroupIndex} para keyword "${kw.keyword}" (máx: ${candidates.length - 1}), se mantiene en LLM-POR-CLASIFICAR`);
+            continue;
+          }
+
           // Mover a grupo existente
-          const targetGroup = candidates[classification.selectedGroupIndex].group;
+          const targetCandidate = candidates[classification.selectedGroupIndex];
+          if (!targetCandidate || !targetCandidate.group) {
+            console.warn(`⚠️ Candidato inválido para keyword "${kw.keyword}", se mantiene en LLM-POR-CLASIFICAR`);
+            continue;
+          }
+
+          const targetGroup = targetCandidate.group;
           const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
 
           if (targetIdx !== -1) {
@@ -613,6 +626,7 @@ function App(){
               ...updatedTree[targetIdx],
               children: [...(updatedTree[targetIdx].children || []), kw]
             };
+            classifiedKeywordIds.add(kw.id);
             classifiedCount++;
           }
         } else if (classification.suggestedGroupName) {
@@ -625,9 +639,17 @@ function App(){
             children: [kw]
           };
           updatedTree.push(newGroup);
+
+          // Agregar el nuevo grupo a otherGroups Y generar su embedding
           otherGroups.push(newGroup);
+          const newGroupEmbed = await getEmbeddingsBatch([newGroup.name]);
+          groupEmbeddings.push(newGroupEmbed[0]);
+
+          classifiedKeywordIds.add(kw.id);
           newGroupsCreated++;
           classifiedCount++;
+
+          console.log(`✨ Nuevo grupo creado: "${classification.suggestedGroupName}" para keyword "${kw.keyword}"`);
         }
 
         // Pequeña pausa para no saturar
@@ -639,7 +661,8 @@ function App(){
       // 3. Actualizar grupo LLM-POR-CLASIFICAR (remover clasificados)
       const classifyGroupIdx = updatedTree.findIndex(n => n.id === toClassifyGroup.id);
       if (classifyGroupIdx !== -1) {
-        const remainingKeywords = keywordsToClassify.filter((_, idx) => idx >= classifiedCount);
+        // Filtrar keywords que NO fueron clasificadas
+        const remainingKeywords = keywordsToClassify.filter(kw => !classifiedKeywordIds.has(kw.id));
 
         if (remainingKeywords.length === 0) {
           // Eliminar el grupo si está vacío
@@ -650,6 +673,8 @@ function App(){
             children: remainingKeywords
           };
         }
+
+        console.log(`📊 Keywords restantes en LLM-POR-CLASIFICAR: ${remainingKeywords.length}`);
       }
 
       const sortedTree = sortGroupChildren(updatedTree);
