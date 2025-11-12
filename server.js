@@ -628,6 +628,178 @@ Responde AHORA con el JSON (sin texto adicional):`;
   }
 });
 
+// ENDPOINT 4: Fusionar grupos similares (Paso 2.5)
+// Detecta cliques de grupos similares y decide cuáles fusionar
+app.post('/api/merge-groups', async (req, res) => {
+  try {
+    const { cliques, groups } = req.body;
+
+    if (!Array.isArray(cliques) || !Array.isArray(groups)) {
+      return res.status(400).json({
+        error: 'Se requieren arrays de cliques y groups'
+      });
+    }
+
+    if (cliques.length === 0) {
+      return res.json({
+        success: true,
+        merges: [],
+        usage: { inputTokens: 0, outputTokens: 0 }
+      });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'ANTHROPIC_API_KEY no configurada'
+      });
+    }
+
+    console.log(`\n🔄 Evaluando ${cliques.length} cliques para posible fusión...`);
+
+    const anthropic = new Anthropic({ apiKey });
+    const nicheContext = loadNicheContext();
+
+    const contextSection = nicheContext ? `
+CONTEXTO DEL NICHO:
+${JSON.stringify(nicheContext, null, 2)}
+` : '';
+
+    // Preparar datos de cliques para el LLM
+    const cliquesData = cliques.map((cliqueIndices, cliqueIdx) => {
+      const cliqueGroups = cliqueIndices.map(groupIdx => {
+        const group = groups[groupIdx];
+        return {
+          originalIndex: groupIdx,
+          name: group.name,
+          volume: group.volume || 0,
+          keywordsCount: group.children?.length || 0,
+          topKeywords: (group.children || [])
+            .slice(0, 5)
+            .map(kw => ({
+              keyword: kw.keyword || kw.name,
+              volume: kw.volume || 0
+            }))
+        };
+      });
+
+      return {
+        cliqueIndex: cliqueIdx,
+        groups: cliqueGroups
+      };
+    });
+
+    const prompt = `Eres un experto en SEO y arquitectura de contenido. Tu tarea es evaluar cliques de grupos similares y decidir si deberían fusionarse en un único grupo.
+
+${contextSection}
+
+CONTEXTO:
+- Un "clique" es un conjunto de grupos donde TODOS tienen alta similitud semántica entre sí (>= 0.6)
+- Debes decidir si fusionar cada clique en un solo grupo o mantenerlos separados
+- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda y URL
+
+CRITERIOS PARA FUSIONAR:
+✅ SÍ fusionar si:
+- Buscan exactamente el mismo producto/servicio
+- Podrían responderse con la MISMA landing page
+- Son sinónimos o variaciones del mismo término
+- Ejemplos: ["Dupe Good Girl", "Clon Good Girl Carolina Herrera", "Réplica Good Girl"]
+
+❌ NO fusionar si:
+- Buscan productos diferentes (aunque sean del mismo tipo)
+- Requieren URLs distintas
+- Son categorías vs productos específicos
+- Ejemplos NO fusionar: ["Dupe Good Girl", "Dupe 212 VIP"] → diferentes productos
+
+CLIQUES A EVALUAR:
+${JSON.stringify(cliquesData, null, 2)}
+
+IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+
+FORMATO DE RESPUESTA:
+{
+  "decisions": [
+    {
+      "cliqueIndex": 0,
+      "shouldMerge": true,
+      "finalName": "Dupe Good Girl Carolina Herrera",
+      "reason": "Los 3 grupos buscan dupes del mismo perfume",
+      "confidence": 0.95
+    },
+    {
+      "cliqueIndex": 1,
+      "shouldMerge": false,
+      "reason": "Cada grupo busca un producto diferente, requieren URLs separadas",
+      "confidence": 0.9
+    }
+  ]
+}
+
+REGLAS:
+- Devuelve una decisión por cada clique
+- Si shouldMerge es true, incluye finalName (nombre del grupo fusionado)
+- El finalName debe ser el más representativo o combinar los nombres existentes
+- Confidence debe estar entre 0 y 1
+
+Responde AHORA con el JSON (sin texto adicional):`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 4096,
+      temperature: 0.1,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const responseText = message.content[0].text;
+    let decisions;
+
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      decisions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('❌ Error parseando respuesta:', parseError);
+      console.error('📄 Respuesta:', responseText);
+      return res.status(500).json({
+        error: 'Error al parsear respuesta del modelo',
+        rawResponse: responseText
+      });
+    }
+
+    // Convertir decisiones a formato de merges
+    const merges = decisions.decisions
+      .filter(d => d.shouldMerge)
+      .map(d => {
+        const cliqueIndices = cliques[d.cliqueIndex];
+        return {
+          groupIndices: cliqueIndices,
+          suggestedName: d.finalName,
+          reason: d.reason,
+          confidence: d.confidence
+        };
+      });
+
+    console.log(`✅ Evaluación completada: ${merges.length}/${cliques.length} cliques para fusionar`);
+    merges.forEach((merge, idx) => {
+      console.log(`   ${idx + 1}. "${merge.suggestedName}" (${merge.groupIndices.length} grupos)`);
+    });
+
+    res.json({
+      success: true,
+      merges,
+      usage: {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en /api/merge-groups:', error);
+    res.status(500).json({
+      error: 'Error interno: ' + error.message
+    });
+  }
+});
+
 // Servir archivos estáticos desde ./public
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, p) => {

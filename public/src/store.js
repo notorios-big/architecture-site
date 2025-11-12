@@ -399,6 +399,120 @@ const useStore = () => {
     }
   };
 
+  // Fusionar grupos similares con LLM (Paso 2.5)
+  const mergeSimilarGroups = async (threshold = 0.6) => {
+    const onlyGroups = tree.filter(node => node.isGroup);
+
+    if (onlyGroups.length < 2) {
+      setError('Se necesitan al menos 2 grupos para detectar fusiones.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Llamar a la función de fusión con embeddings
+      const result = await window.mergeGroupsWithLLM(
+        tree,
+        threshold,
+        (message) => {
+          setSuccess(message);
+        }
+      );
+
+      const merges = result.merges || [];
+
+      if (merges.length === 0) {
+        setSuccess('No se encontraron grupos similares para fusionar');
+        setLoading(false);
+        return;
+      }
+
+      // Aplicar fusiones al árbol
+      let updatedTree = [...tree];
+
+      merges.forEach((merge, mergeIdx) => {
+        console.log(`\n🔄 Aplicando fusión ${mergeIdx + 1}/${merges.length}...`);
+
+        const groupIndices = merge.groupIndices;
+        const groupsToMerge = groupIndices.map(idx =>
+          updatedTree.find((_, treeIdx) => {
+            // Contar solo grupos de nivel superior
+            const groupsBeforeIdx = updatedTree.slice(0, treeIdx).filter(n => n.isGroup).length;
+            return groupsBeforeIdx === idx;
+          })
+        ).filter(Boolean);
+
+        if (groupsToMerge.length < 2) {
+          console.warn(`   ⚠️ No se pudieron encontrar todos los grupos para fusionar`);
+          return;
+        }
+
+        console.log(`   Fusionando: ${groupsToMerge.map(g => `"${g.name}"`).join(' + ')}`);
+        console.log(`   Nuevo nombre: "${merge.suggestedName}"`);
+
+        // Combinar todos los children (keywords)
+        const mergedChildren = [];
+        const seenKeywords = new Set();
+
+        groupsToMerge.forEach(group => {
+          if (group.children) {
+            group.children.forEach(child => {
+              // Evitar duplicados basados en keyword
+              const kwText = child.keyword || child.name || '';
+              if (!child.isGroup && kwText && !seenKeywords.has(kwText.toLowerCase())) {
+                seenKeywords.add(kwText.toLowerCase());
+                mergedChildren.push(child);
+              }
+            });
+          }
+        });
+
+        // Calcular volumen total del grupo fusionado
+        const totalVolume = mergedChildren.reduce((sum, kw) => sum + (kw.volume || 0), 0);
+
+        // Crear nuevo grupo fusionado
+        const mergedGroup = {
+          id: window.uid('group'),
+          name: merge.suggestedName,
+          isGroup: true,
+          collapsed: false,
+          children: mergedChildren,
+          volume: totalVolume
+        };
+
+        console.log(`   ✓ Grupo fusionado: ${mergedChildren.length} keywords, volumen: ${totalVolume}`);
+
+        // Eliminar grupos originales del árbol
+        const groupIdsToRemove = groupsToMerge.map(g => g.id);
+        updatedTree = updatedTree.filter(n => !groupIdsToRemove.includes(n.id));
+
+        // Agregar el grupo fusionado
+        updatedTree.push(mergedGroup);
+      });
+
+      // Ordenar el árbol final
+      const sortedTree = window.sortGroupChildren(updatedTree);
+      setTree(sortedTree);
+
+      // Mensaje de éxito
+      const totalGroupsMerged = merges.reduce((sum, m) => sum + m.groupIndices.length, 0);
+      setSuccess(`Fusión completada: ${merges.length} fusiones realizadas (${totalGroupsMerged} grupos → ${merges.length} grupos)`);
+
+      console.log(`\n✅ Fusión de grupos completada`);
+      console.log(`   - ${merges.length} fusiones realizadas`);
+      console.log(`   - ${totalGroupsMerged} grupos originales → ${merges.length} grupos fusionados`);
+      console.log(`   - Árbol final: ${sortedTree.length} nodos de nivel superior`);
+
+    } catch (err) {
+      console.error('❌ Error en mergeSimilarGroups:', err);
+      setError('Error al fusionar grupos: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     // Estado
     keywords,
@@ -426,6 +540,7 @@ const useStore = () => {
     onCSV,
     autoGroup,
     refineGroups,
+    mergeSimilarGroups,
     toggleCollapse,
     collapseAll,
     renameNode,
