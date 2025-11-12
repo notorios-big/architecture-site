@@ -430,22 +430,30 @@ const useStore = () => {
       }
 
       // Aplicar fusiones al árbol
+      console.log(`\n4️⃣ Aplicando ${merges.length} fusiones...`);
       let updatedTree = [...tree];
 
+      // IMPORTANTE: Crear un mapa de índice -> ID de grupo antes de empezar
+      // porque los índices cambian después de cada fusión
+      const onlyGroups = tree.filter(node => node.isGroup);
+      const groupIdMap = new Map();
+      onlyGroups.forEach((group, idx) => {
+        groupIdMap.set(idx, group.id);
+      });
+
       merges.forEach((merge, mergeIdx) => {
-        console.log(`\n🔄 Aplicando fusión ${mergeIdx + 1}/${merges.length}...`);
+        console.log(`\n   Fusión ${mergeIdx + 1}/${merges.length}:`);
 
         const groupIndices = merge.groupIndices;
-        const groupsToMerge = groupIndices.map(idx =>
-          updatedTree.find((_, treeIdx) => {
-            // Contar solo grupos de nivel superior
-            const groupsBeforeIdx = updatedTree.slice(0, treeIdx).filter(n => n.isGroup).length;
-            return groupsBeforeIdx === idx;
-          })
-        ).filter(Boolean);
+
+        // Convertir índices a IDs y buscar grupos en el árbol actual
+        const groupIds = groupIndices.map(idx => groupIdMap.get(idx)).filter(Boolean);
+        const groupsToMerge = groupIds
+          .map(id => updatedTree.find(n => n.id === id))
+          .filter(Boolean);
 
         if (groupsToMerge.length < 2) {
-          console.warn(`   ⚠️ No se pudieron encontrar todos los grupos para fusionar`);
+          console.warn(`   ⚠️ Solo se encontraron ${groupsToMerge.length} grupos, saltando...`);
           return;
         }
 
@@ -482,7 +490,7 @@ const useStore = () => {
           volume: totalVolume
         };
 
-        console.log(`   ✓ Grupo fusionado: ${mergedChildren.length} keywords, volumen: ${totalVolume}`);
+        console.log(`   ✓ Fusionado: ${mergedChildren.length} keywords, volumen: ${totalVolume.toLocaleString()}`);
 
         // Eliminar grupos originales del árbol
         const groupIdsToRemove = groupsToMerge.map(g => g.id);
