@@ -320,12 +320,25 @@ ${JSON.stringify(nicheContext, null, 2)}
       candidates: item.candidateGroups
     }));
 
+    // Debug: calcular tamaño del batch data
+    const batchDataStr = JSON.stringify(batchData, null, 2);
+    const batchDataTokens = Math.ceil(batchDataStr.length / 4); // Estimación aproximada
+    const contextTokens = contextSection ? Math.ceil(contextSection.length / 4) : 0;
+
+    console.log(`   📊 Debug de tokens:`);
+    console.log(`      - Keywords en batch: ${keywordsBatch.length}`);
+    console.log(`      - Candidatos totales: ${keywordsBatch.reduce((sum, kw) => sum + kw.candidateGroups.length, 0)}`);
+    console.log(`      - Caracteres batchData: ${batchDataStr.length.toLocaleString()}`);
+    console.log(`      - Tokens estimados batchData: ${batchDataTokens.toLocaleString()}`);
+    console.log(`      - Tokens estimados contexto: ${contextTokens.toLocaleString()}`);
+    console.log(`      - Tokens totales estimados: ${(batchDataTokens + contextTokens).toLocaleString()}`);
+
     const prompt = `Eres un experto en SEO. Debes clasificar MÚLTIPLES keywords en sus grupos más apropiados.
 
 ${contextSection}
 
 KEYWORDS A CLASIFICAR (BATCH):
-${JSON.stringify(batchData, null, 2)}
+${batchDataStr}
 
 Para cada keyword, analiza la intención de búsqueda y determina cuál grupo candidato es más apropiado.
 
