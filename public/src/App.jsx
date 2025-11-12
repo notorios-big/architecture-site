@@ -563,20 +563,27 @@ function App(){
           group: otherGroups[idx]
         }));
 
-        // 2.2 Filtrar grupos con similitud > 0.3
+        // 2.2 Filtrar grupos con similitud > 0.3 y ordenar por similitud
         const candidates = similarities
           .filter(s => s.similarity > 0.3)
-          .sort((a, b) => b.similarity - a.similarity)
-          .slice(0, 40); // Máximo 40 candidatos
+          .sort((a, b) => b.similarity - a.similarity);
+        // No limitamos artificialmente, dejamos que el LLM evalúe todos los candidatos válidos
+
+        console.log(`📊 Keyword "${kw.keyword}": ${candidates.length} candidatos con similitud > 0.3`);
 
         if (candidates.length === 0) {
           console.log(`⚠️ Keyword "${kw.keyword}" sin candidatos válidos, se mantiene en LLM-POR-CLASIFICAR`);
           continue;
         }
 
+        // Si hay muchos candidatos, limitamos a los top 30 para no saturar el LLM
+        const topCandidates = candidates.slice(0, 30);
+        console.log(`   → Enviando ${topCandidates.length} candidatos al LLM`);
+
         // 2.3 Preparar datos para el LLM
-        const candidateGroups = candidates.map(c => ({
-          index: c.index,
+        const candidateGroups = topCandidates.map((c, mappedIndex) => ({
+          index: mappedIndex, // Índice relativo en el array de candidatos enviado al LLM
+          originalIndex: c.index, // Índice original en otherGroups
           name: c.group.name,
           similarity: c.similarity,
           sampleKeywords: (c.group.children || [])
@@ -603,16 +610,18 @@ function App(){
         const result = await resp.json();
         const classification = result.classification;
 
+        console.log(`   → Respuesta LLM: selectedGroupIndex=${classification.selectedGroupIndex}, confidence=${classification.confidence}`);
+
         // 2.5 Aplicar clasificación
         if (classification.selectedGroupIndex !== -1) {
           // Validar que el índice esté dentro del rango
-          if (classification.selectedGroupIndex >= candidates.length) {
-            console.warn(`⚠️ Índice inválido ${classification.selectedGroupIndex} para keyword "${kw.keyword}" (máx: ${candidates.length - 1}), se mantiene en LLM-POR-CLASIFICAR`);
+          if (classification.selectedGroupIndex >= topCandidates.length) {
+            console.warn(`⚠️ Índice inválido ${classification.selectedGroupIndex} para keyword "${kw.keyword}" (máx: ${topCandidates.length - 1}), se mantiene en LLM-POR-CLASIFICAR`);
             continue;
           }
 
           // Mover a grupo existente
-          const targetCandidate = candidates[classification.selectedGroupIndex];
+          const targetCandidate = topCandidates[classification.selectedGroupIndex];
           if (!targetCandidate || !targetCandidate.group) {
             console.warn(`⚠️ Candidato inválido para keyword "${kw.keyword}", se mantiene en LLM-POR-CLASIFICAR`);
             continue;
@@ -621,6 +630,8 @@ function App(){
           const targetGroup = targetCandidate.group;
           const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
 
+          console.log(`   → Moviendo "${kw.keyword}" a grupo "${targetGroup.name}" (idx ${targetIdx})`);
+
           if (targetIdx !== -1) {
             updatedTree[targetIdx] = {
               ...updatedTree[targetIdx],
@@ -628,6 +639,9 @@ function App(){
             };
             classifiedKeywordIds.add(kw.id);
             classifiedCount++;
+            console.log(`   ✅ Keyword clasificada exitosamente en "${targetGroup.name}"`);
+          } else {
+            console.warn(`   ⚠️ No se encontró el grupo en updatedTree (id: ${targetGroup.id})`);
           }
         } else if (classification.suggestedGroupName) {
           // Crear nuevo grupo
