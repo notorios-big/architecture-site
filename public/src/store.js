@@ -1,5 +1,5 @@
 // src/store.js
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useMemo } = React;
 
 const useStore = () => {
   const [keywords, setKeywords] = useState([]);
@@ -136,20 +136,35 @@ const useStore = () => {
         }
 
         const top = g.reduce((m, x) => (x.volume > m.volume ? x : m), g[0]);
+
+        // Optimización: colapsar automáticamente grupos grandes o cuando hay muchos grupos
+        // Esto mejora significativamente la performance con +1000 keywords
+        const autoCollapse = (
+          g.length > 20 || // Grupo tiene más de 20 keywords
+          (keywords.length > 500 && groups.length > 10) // Muchas keywords y ya hay muchos grupos
+        );
+
         groups.push({
           id: window.uid('group'),
           name: top.keyword,
           isGroup: true,
-          collapsed: false,
+          collapsed: autoCollapse,
           children: g.map(({ embedding, ...rest }) => rest),
         });
       }
 
       const sortedGroups = window.sortGroupChildren(groups);
       setTree(sortedGroups);
-      setSuccess(`Agrupación completada: ${groups.length} grupos creados`);
+
+      const collapsedCount = groups.filter(g => g.collapsed).length;
+      const successMsg = collapsedCount > 0
+        ? `Agrupación completada: ${groups.length} grupos creados (${collapsedCount} colapsados automáticamente)`
+        : `Agrupación completada: ${groups.length} grupos creados`;
+
+      setSuccess(successMsg);
     } catch (err) {
-      setError('Error al agrupar: ' + (err?.message || String(err)));
+      const userMessage = window.formatErrorForUser ? window.formatErrorForUser(err) : (err?.message || String(err));
+      setError('Error al agrupar: ' + userMessage);
     } finally {
       setLoading(false);
     }
@@ -393,7 +408,8 @@ const useStore = () => {
 
       setSuccess(`Refinamiento completado: ${summary.join(', ')}`);
     } catch (err) {
-      setError('Error al refinar grupos: ' + (err?.message || String(err)));
+      const userMessage = window.formatErrorForUser ? window.formatErrorForUser(err) : (err?.message || String(err));
+      setError('Error al refinar grupos: ' + userMessage);
     } finally {
       setLoading(false);
     }
@@ -515,7 +531,8 @@ const useStore = () => {
 
     } catch (err) {
       console.error('❌ Error en mergeSimilarGroups:', err);
-      setError('Error al fusionar grupos: ' + (err?.message || String(err)));
+      const userMessage = window.formatErrorForUser ? window.formatErrorForUser(err) : (err?.message || String(err));
+      setError('Error al fusionar grupos: ' + userMessage);
     } finally {
       setLoading(false);
     }

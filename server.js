@@ -4,6 +4,8 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const Anthropic = require('@anthropic-ai/sdk');
+const { getCache } = require('./lib/embeddings-cache');
+const { retryOpenAI, retryAnthropic, formatUserError } = require('./lib/retry-helper');
 
 const app = express();
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -13,11 +15,11 @@ const INDEX_HTML = path.join(PUBLIC_DIR, 'index.html');
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' })); // Aumentado para batches grandes
 
-// Endpoint para embeddings (usando API de OpenAI con batching)
+// Endpoint para embeddings (con caché y retry logic)
 app.post('/api/embeddings', async (req, res) => {
   try {
-    const { texts } = req.body;
-    
+    const { texts, volumes = [] } = req.body;
+
     if (!Array.isArray(texts) || texts.length === 0) {
       return res.status(400).json({ error: 'Se requiere un array de textos' });
     }
@@ -25,57 +27,129 @@ app.post('/api/embeddings', async (req, res) => {
     // Verificar que existe la API key
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ 
-        error: 'OPENAI_API_KEY no configurada en el servidor' 
+      return res.status(500).json({
+        error: 'OPENAI_API_KEY no configurada en el servidor'
       });
     }
 
-    // Procesar en lotes de 100 (límite seguro de OpenAI)
-    const BATCH_SIZE = 100;
-    const allEmbeddings = [];
-    
-    console.log(`Procesando ${texts.length} keywords en lotes de ${BATCH_SIZE}...`);
-    
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batch = texts.slice(i, i + BATCH_SIZE);
-      console.log(`Lote ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(texts.length / BATCH_SIZE)}: procesando ${batch.length} items`);
-      
-      const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'text-embedding-3-large',
-          input: batch
-        })
-      });
+    // Obtener instancia del caché
+    const cache = getCache();
 
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('Error de OpenAI:', error);
-        return res.status(response.status).json({ 
-          error: error.error?.message || 'Error al obtener embeddings' 
+    // Buscar embeddings en caché
+    const { found, missing } = cache.getBatch(texts);
+
+    console.log(`\n📊 Procesando ${texts.length} keywords:`);
+    console.log(`   ✅ ${found.length} encontrados en caché`);
+    console.log(`   🔍 ${missing.length} requieren generación`);
+
+    // Crear mapa de keywords a embeddings con los encontrados
+    const embeddingsMap = new Map();
+    found.forEach(item => {
+      embeddingsMap.set(item.keyword.toLowerCase().trim(), item.embedding);
+    });
+
+    // Si hay keywords faltantes, generarlas con OpenAI
+    if (missing.length > 0) {
+      const BATCH_SIZE = 100;
+      const newEmbeddings = [];
+
+      console.log(`   🚀 Generando ${missing.length} nuevos embeddings...`);
+
+      for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+        const batch = missing.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(missing.length / BATCH_SIZE);
+
+        console.log(`   📦 Lote ${batchNum}/${totalBatches}: ${batch.length} items`);
+
+        // Usar retry logic para la llamada a OpenAI
+        const batchEmbeddings = await retryOpenAI(async () => {
+          const response = await fetch('https://api.openai.com/v1/embeddings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: 'text-embedding-3-large',
+              input: batch
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            const err = new Error(error.error?.message || 'Error al obtener embeddings');
+            err.status = response.status;
+            throw err;
+          }
+
+          const data = await response.json();
+          return data.data.map(item => item.embedding);
+        }, {
+          maxRetries: 3,
+          initialDelay: 2000
         });
+
+        newEmbeddings.push(...batchEmbeddings);
+
+        // Pequeña pausa entre lotes para no saturar la API
+        if (i + BATCH_SIZE < missing.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
 
-      const data = await response.json();
-      const batchEmbeddings = data.data.map(item => item.embedding);
-      allEmbeddings.push(...batchEmbeddings);
-      
-      // Pequeña pausa entre lotes para no saturar la API
-      if (i + BATCH_SIZE < texts.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+      // Guardar nuevos embeddings en caché
+      const itemsToCache = missing.map((keyword, idx) => {
+        const keywordIdx = texts.findIndex(t => t.toLowerCase().trim() === keyword.toLowerCase().trim());
+        return {
+          keyword,
+          embedding: newEmbeddings[idx],
+          volume: volumes[keywordIdx] || 0
+        };
+      });
+
+      cache.setBatch(itemsToCache);
+
+      // Agregar al mapa
+      missing.forEach((keyword, idx) => {
+        embeddingsMap.set(keyword.toLowerCase().trim(), newEmbeddings[idx]);
+      });
+
+      console.log(`   ✅ ${newEmbeddings.length} nuevos embeddings generados y guardados`);
     }
 
-    console.log(`✅ Completado: ${allEmbeddings.length} embeddings generados`);
-    res.json({ embeddings: allEmbeddings });
+    // Construir array de embeddings en el orden original de texts
+    const allEmbeddings = texts.map(text => {
+      const normalized = text.toLowerCase().trim();
+      return embeddingsMap.get(normalized);
+    });
+
+    // Verificar que todos los embeddings están presentes
+    if (allEmbeddings.some(emb => !emb)) {
+      console.error('❌ Error: algunos embeddings están faltando');
+      return res.status(500).json({
+        error: 'Error al recuperar algunos embeddings'
+      });
+    }
+
+    console.log(`   ✅ Completado: ${allEmbeddings.length} embeddings retornados`);
+    console.log(`   📈 Caché stats:`, cache.getStats());
+
+    res.json({
+      embeddings: allEmbeddings,
+      stats: {
+        total: texts.length,
+        cached: found.length,
+        generated: missing.length
+      }
+    });
+
   } catch (error) {
     console.error('Error en /api/embeddings:', error);
+    const userMessage = formatUserError(error, 'generación de embeddings');
     res.status(500).json({
-      error: 'Error interno del servidor: ' + error.message
+      error: userMessage,
+      details: error.message
     });
   }
 });
@@ -203,11 +277,17 @@ REGLAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 16384,
-      temperature: 0.2,
-      messages: [{ role: 'user', content: prompt }]
+    // Usar retry logic para la llamada a Anthropic
+    const message = await retryAnthropic(async () => {
+      return await anthropic.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 16384,
+        temperature: 0.2,
+        messages: [{ role: 'user', content: prompt }]
+      });
+    }, {
+      maxRetries: 3,
+      initialDelay: 2000
     });
 
     const responseText = message.content[0].text;
@@ -278,8 +358,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
 
   } catch (error) {
     console.error('Error en /api/clean-groups:', error);
+    const userMessage = formatUserError(error, 'limpieza de grupos');
     res.status(500).json({
-      error: 'Error interno del servidor: ' + error.message
+      error: userMessage,
+      details: error.message
     });
   }
 });
@@ -371,11 +453,17 @@ REGLAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 4096,
-      temperature: 0.2,
-      messages: [{ role: 'user', content: prompt }]
+    // Usar retry logic para la llamada a Anthropic
+    const message = await retryAnthropic(async () => {
+      return await anthropic.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 4096,
+        temperature: 0.2,
+        messages: [{ role: 'user', content: prompt }]
+      });
+    }, {
+      maxRetries: 3,
+      initialDelay: 2000
     });
 
     const responseText = message.content[0].text;
@@ -386,8 +474,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       batchClassification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
     } catch (parseError) {
       return res.status(500).json({
-        error: 'Error al parsear respuesta',
-        rawResponse: responseText
+        error: 'Error al parsear respuesta del modelo',
+        details: parseError.message,
+        rawResponse: responseText.slice(0, 500)
       });
     }
 
@@ -404,8 +493,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
 
   } catch (error) {
     console.error('Error en /api/classify-keywords-batch:', error);
+    const userMessage = formatUserError(error, 'clasificación de keywords');
     res.status(500).json({
-      error: 'Error interno: ' + error.message
+      error: userMessage,
+      details: error.message
     });
   }
 });
@@ -472,11 +563,17 @@ Si NINGÚN grupo es apropiado:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 1024,
-      temperature: 0.2,
-      messages: [{ role: 'user', content: prompt }]
+    // Usar retry logic para la llamada a Anthropic
+    const message = await retryAnthropic(async () => {
+      return await anthropic.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 1024,
+        temperature: 0.2,
+        messages: [{ role: 'user', content: prompt }]
+      });
+    }, {
+      maxRetries: 3,
+      initialDelay: 2000
     });
 
     const responseText = message.content[0].text;
@@ -487,8 +584,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       classification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
     } catch (parseError) {
       return res.status(500).json({
-        error: 'Error al parsear respuesta',
-        rawResponse: responseText
+        error: 'Error al parsear respuesta del modelo',
+        details: parseError.message,
+        rawResponse: responseText.slice(0, 500)
       });
     }
 
@@ -507,8 +605,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
 
   } catch (error) {
     console.error('Error en /api/classify-keywords:', error);
+    const userMessage = formatUserError(error, 'clasificación de keyword');
     res.status(500).json({
-      error: 'Error interno: ' + error.message
+      error: userMessage,
+      details: error.message
     });
   }
 });
@@ -589,11 +689,17 @@ Si NO hay jerarquías válidas:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 4096,
-      temperature: 0.3,
-      messages: [{ role: 'user', content: prompt }]
+    // Usar retry logic para la llamada a Anthropic
+    const message = await retryAnthropic(async () => {
+      return await anthropic.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 4096,
+        temperature: 0.3,
+        messages: [{ role: 'user', content: prompt }]
+      });
+    }, {
+      maxRetries: 3,
+      initialDelay: 2000
     });
 
     const responseText = message.content[0].text;
@@ -604,8 +710,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       hierarchySuggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
     } catch (parseError) {
       return res.status(500).json({
-        error: 'Error al parsear respuesta',
-        rawResponse: responseText
+        error: 'Error al parsear respuesta del modelo',
+        details: parseError.message,
+        rawResponse: responseText.slice(0, 500)
       });
     }
 
@@ -622,8 +729,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
 
   } catch (error) {
     console.error('Error en /api/generate-hierarchies:', error);
+    const userMessage = formatUserError(error, 'generación de jerarquías');
     res.status(500).json({
-      error: 'Error interno: ' + error.message
+      error: userMessage,
+      details: error.message
     });
   }
 });
@@ -756,11 +865,17 @@ REGLAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 16384, // Aumentado para manejar muchos cliques
-      temperature: 0.1,
-      messages: [{ role: 'user', content: prompt }]
+    // Usar retry logic para la llamada a Anthropic
+    const message = await retryAnthropic(async () => {
+      return await anthropic.messages.create({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 16384, // Aumentado para manejar muchos cliques
+        temperature: 0.1,
+        messages: [{ role: 'user', content: prompt }]
+      });
+    }, {
+      maxRetries: 3,
+      initialDelay: 2000
     });
 
     const responseText = message.content[0].text;
@@ -847,8 +962,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
 
   } catch (error) {
     console.error('Error en /api/merge-groups:', error);
+    const userMessage = formatUserError(error, 'fusión de grupos');
     res.status(500).json({
-      error: 'Error interno: ' + error.message
+      error: userMessage,
+      details: error.message
     });
   }
 });
