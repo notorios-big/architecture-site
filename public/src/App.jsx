@@ -375,13 +375,13 @@ function App(){
     setError('');
 
     try {
-      const batchSize = 100;
+      const batchSize = 50;
       const batches = [];
       for (let i = 0; i < onlyGroups.length; i += batchSize) {
         batches.push(onlyGroups.slice(i, i + batchSize));
       }
 
-      console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches...`);
+      console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches de ${batchSize}...`);
 
       let allKeywordsToClassify = [];
       let updatedTree = [...tree];
@@ -396,7 +396,10 @@ function App(){
           volume: nodeVolume(group),
           keywords: (group.children || [])
             .filter(child => !child.isGroup)
-            .map(child => child.keyword || child.name)
+            .map(child => ({
+              keyword: child.keyword || child.name,
+              volume: child.volume || 0
+            }))
         }));
 
         const resp = await fetch(`${serverBase}/api/clean-groups`, {
@@ -425,16 +428,22 @@ function App(){
             const groupIdx = updatedTree.findIndex(n => n.id === group.id);
             if (groupIdx === -1) return;
 
-            // Actualizar título y mantener solo las keywords válidas
+            // Mantener solo las keywords válidas
             const newChildren = (updatedTree[groupIdx].children || []).filter(child => {
               if (child.isGroup) return true;
               const kwText = child.keyword || child.name;
               return cleaned.keepKeywords.includes(kwText);
             });
 
+            // Calcular el nuevo título usando la keyword de mayor volumen
+            const keywordsOnly = newChildren.filter(c => !c.isGroup);
+            const topKeyword = keywordsOnly.reduce((max, kw) => {
+              return (kw.volume || 0) > (max.volume || 0) ? kw : max;
+            }, keywordsOnly[0] || { keyword: group.name });
+
             updatedTree[groupIdx] = {
               ...updatedTree[groupIdx],
-              name: cleaned.suggestedTitle,
+              name: topKeyword.keyword || group.name,
               children: newChildren
             };
           });
@@ -449,23 +458,42 @@ function App(){
         }
       }
 
-      // Crear o actualizar grupo LLM-POR-CLASIFICAR
+      // Crear o actualizar grupo LLM-POR-CLASIFICAR (único)
       if (allKeywordsToClassify.length > 0) {
-        const toClassifyGroup = updatedTree.find(n => n.name === 'LLM-POR-CLASIFICAR');
-        const newKeywords = allKeywordsToClassify.map(kwText => ({
-          id: uid('kw'),
-          keyword: kwText,
-          volume: 0,
-          isGroup: false
-        }));
+        // Buscar grupo existente (debe ser grupo, no keyword)
+        const toClassifyGroup = updatedTree.find(n =>
+          n.isGroup && n.name === 'LLM-POR-CLASIFICAR'
+        );
+
+        // Convertir keywords a objetos con volumen preservado
+        const newKeywords = allKeywordsToClassify.map(kwData => {
+          // Si ya viene como objeto (del servidor nuevo), usarlo directo
+          if (typeof kwData === 'object' && kwData.keyword) {
+            return {
+              id: uid('kw'),
+              keyword: kwData.keyword,
+              volume: kwData.volume || 0,
+              isGroup: false
+            };
+          }
+          // Si viene como string (legacy), crear con volumen 0
+          return {
+            id: uid('kw'),
+            keyword: kwData,
+            volume: 0,
+            isGroup: false
+          };
+        });
 
         if (toClassifyGroup) {
+          // Actualizar grupo existente
           const idx = updatedTree.findIndex(n => n.id === toClassifyGroup.id);
           updatedTree[idx] = {
             ...toClassifyGroup,
             children: [...(toClassifyGroup.children || []), ...newKeywords]
           };
         } else {
+          // Crear nuevo grupo SOLO si no existe
           updatedTree.push({
             id: uid('group'),
             name: 'LLM-POR-CLASIFICAR',

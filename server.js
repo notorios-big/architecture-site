@@ -95,7 +95,7 @@ const loadNicheContext = () => {
 };
 
 // ENDPOINT 1: Limpieza de grupos
-// Analiza batches de ~100 grupos, saca palabras que no tienen sentido
+// Analiza batches de ~50 grupos, saca palabras que no tienen sentido
 // y las mueve a un grupo especial "LLM-POR-CLASIFICAR"
 app.post('/api/clean-groups', async (req, res) => {
   try {
@@ -113,18 +113,30 @@ app.post('/api/clean-groups', async (req, res) => {
     }
 
     console.log(`\n🧹 Limpiando batch ${batchIndex + 1}/${totalBatches} con ${groups.length} grupos...`);
+    console.log(`   Modelo: claude-haiku-4-5 | Max tokens: 16384 | Temperatura: 0.2`);
 
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
 
-    // Preparar datos de grupos
+    if (nicheContext) {
+      console.log(`   ✓ Contexto del nicho cargado: ${nicheContext.nicho || 'desconocido'}`);
+    } else {
+      console.log(`   ⚠️ No se encontró niche-context.json, usando contexto genérico`);
+    }
+
+    // Preparar datos de grupos CON volúmenes de keywords
     const groupsData = groups.map((group, idx) => {
       const keywords = group.keywords || [];
       const keywordsList = keywords.map(kw => {
-        if (typeof kw === 'string') return kw;
-        if (kw.keyword) return kw.keyword;
-        return kw.name || '';
-      }).filter(k => k);
+        // Manejar diferentes formatos de keyword
+        if (typeof kw === 'string') {
+          return { keyword: kw, volume: 0 };
+        }
+        return {
+          keyword: kw.keyword || kw.name || '',
+          volume: kw.volume || 0
+        };
+      }).filter(k => k.keyword);
 
       return {
         index: idx,
@@ -152,8 +164,11 @@ ${contextSection}
 OBJETIVO:
 1. Para cada grupo, identifica keywords que NO tienen sentido semántico con el resto
 2. Esas keywords "huérfanas" deben moverse al grupo "LLM-POR-CLASIFICAR"
-3. Para cada grupo limpio, sugiere el título más representativo basado en la keyword con mayor volumen o la más descriptiva
-4. Un grupo debe mantener UNA ÚNICA intención de búsqueda
+3. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
+   - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
+   - "dupe good girl" → URL diferente a "dupe 212 vip"
+   - Solo agrupa keywords que podrían responderse en la MISMA landing page
+4. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
 
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
@@ -163,23 +178,30 @@ Responde SOLO con un objeto JSON válido (sin markdown, sin explicaciones):
   "cleanedGroups": [
     {
       "groupIndex": 0,
-      "suggestedTitle": "Dupe Good Girl Carolina Herrera",
       "keepKeywords": ["dupe good girl", "clon good girl"],
-      "removeKeywords": ["perfume mujer dulce"],
-      "reason": "La keyword 'perfume mujer dulce' es muy genérica y no menciona Good Girl"
+      "removeKeywords": [
+        {"keyword": "perfume mujer dulce", "volume": 1200},
+        {"keyword": "fragancia hombre", "volume": 800}
+      ],
+      "reason": "Las keywords removidas buscan intenciones diferentes y necesitan URLs separadas"
     }
   ],
-  "toClassify": ["perfume mujer dulce", "fragancia hombre", ...]
+  "toClassify": [
+    {"keyword": "perfume mujer dulce", "volume": 1200},
+    {"keyword": "fragancia hombre", "volume": 800}
+  ]
 }
 
 IMPORTANTE:
 - Solo incluye grupos que necesiten limpieza
-- toClassify debe contener TODAS las keywords removidas de todos los grupos
-- Si un grupo está bien, no lo incluyas en cleanedGroups`;
+- toClassify debe contener TODAS las keywords removidas de todos los grupos CON SU VOLUMEN
+- removeKeywords debe incluir el objeto completo de cada keyword con su volumen
+- Si un grupo está bien, no lo incluyas en cleanedGroups
+- NO sugieras títulos, trabajaremos con las keywords de mayor volumen`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 8192,
+      max_tokens: 16384,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }]
     });
@@ -187,20 +209,58 @@ IMPORTANTE:
     const responseText = message.content[0].text;
     let cleaningSuggestions;
 
+    // Estrategia multi-nivel para parsear JSON robusto
+    let parseStrategy = '';
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      cleaningSuggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Error parseando respuesta:', parseError);
-      return res.status(500).json({
-        error: 'Error al parsear respuesta del modelo',
-        rawResponse: responseText
-      });
+      // Intento 1: Parsear directo (más común cuando funciona bien)
+      cleaningSuggestions = JSON.parse(responseText);
+      parseStrategy = 'directo';
+    } catch (e1) {
+      try {
+        // Intento 2: Extraer JSON con regex (por si hay texto antes/después)
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+        cleaningSuggestions = JSON.parse(jsonMatch[0]);
+        parseStrategy = 'regex';
+      } catch (e2) {
+        try {
+          // Intento 3: Reparar JSON truncado (común con respuestas largas)
+          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+
+          let jsonStr = jsonMatch[0];
+          // Remover comas finales sueltas
+          jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+          // Si termina con coma, completar el array
+          if (jsonStr.match(/,\s*$/)) {
+            jsonStr = jsonStr.trim().replace(/,\s*$/, '') + ']}';
+          }
+          cleaningSuggestions = JSON.parse(jsonStr);
+          parseStrategy = 'reparación';
+        } catch (e3) {
+          // Intento 4: Fallar con información útil
+          console.error('❌ Error parseando respuesta después de 3 intentos:');
+          console.error('  - Intento 1 (directo):', e1.message);
+          console.error('  - Intento 2 (regex):', e2.message);
+          console.error('  - Intento 3 (reparación):', e3.message);
+          console.error('📄 Últimos 300 caracteres de respuesta:', responseText.slice(-300));
+          console.error('📏 Longitud total de respuesta:', responseText.length);
+
+          return res.status(500).json({
+            error: 'Error al parsear respuesta del modelo',
+            details: 'JSON malformado o incompleto después de múltiples intentos',
+            responseLength: responseText.length,
+            responseTail: responseText.slice(-300),
+            attempts: [e1.message, e2.message, e3.message]
+          });
+        }
+      }
     }
 
-    console.log('✅ Limpieza completada para batch', batchIndex + 1);
+    console.log(`✅ Limpieza completada para batch ${batchIndex + 1} (parsing: ${parseStrategy})`);
     console.log('   - Grupos limpiados:', cleaningSuggestions.cleanedGroups?.length || 0);
     console.log('   - Keywords a clasificar:', cleaningSuggestions.toClassify?.length || 0);
+    console.log('   - Respuesta:', `${responseText.length} caracteres`);
 
     res.json({
       success: true,
