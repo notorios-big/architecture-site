@@ -284,7 +284,120 @@ Responde AHORA con el JSON (sin texto adicional):`;
   }
 });
 
-// ENDPOINT 2: Clasificar keywords desde LLM-POR-CLASIFICAR
+// ENDPOINT 2: Clasificar keywords en BATCH desde LLM-POR-CLASIFICAR
+// Procesa múltiples keywords a la vez para mayor velocidad
+app.post('/api/classify-keywords-batch', async (req, res) => {
+  try {
+    const { keywordsBatch } = req.body;
+
+    if (!Array.isArray(keywordsBatch) || keywordsBatch.length === 0) {
+      return res.status(400).json({
+        error: 'Se requiere un array de keywords con sus candidatos'
+      });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'ANTHROPIC_API_KEY no configurada'
+      });
+    }
+
+    console.log(`\n🎯 Clasificando batch de ${keywordsBatch.length} keywords...`);
+
+    const anthropic = new Anthropic({ apiKey });
+    const nicheContext = loadNicheContext();
+
+    const contextSection = nicheContext ? `
+CONTEXTO DEL NICHO:
+${JSON.stringify(nicheContext, null, 2)}
+` : '';
+
+    // Preparar el batch para el LLM
+    const batchData = keywordsBatch.map((item, idx) => ({
+      batchIndex: idx,
+      keyword: item.keyword,
+      candidates: item.candidateGroups
+    }));
+
+    const prompt = `Eres un experto en SEO. Debes clasificar MÚLTIPLES keywords en sus grupos más apropiados.
+
+${contextSection}
+
+KEYWORDS A CLASIFICAR (BATCH):
+${JSON.stringify(batchData, null, 2)}
+
+Para cada keyword, analiza la intención de búsqueda y determina cuál grupo candidato es más apropiado.
+
+IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+
+FORMATO DE RESPUESTA:
+{
+  "classifications": [
+    {
+      "batchIndex": 0,
+      "selectedGroupIndex": 2,
+      "confidence": 0.85,
+      "reason": "La keyword busca dupes de Good Girl, coincide perfectamente con el grupo"
+    },
+    {
+      "batchIndex": 1,
+      "selectedGroupIndex": -1,
+      "confidence": 0.9,
+      "reason": "Esta keyword busca un producto diferente, requiere grupo nuevo",
+      "suggestedGroupName": "Dupe Sauvage Dior"
+    }
+  ]
+}
+
+REGLAS:
+- Devuelve una clasificación por cada keyword en el batch
+- selectedGroupIndex: índice del grupo candidato elegido, o -1 si ninguno es apropiado
+- Si selectedGroupIndex es -1, incluye suggestedGroupName para crear nuevo grupo
+- Mantén el batchIndex para mapear cada respuesta a su keyword original
+
+Responde AHORA con el JSON (sin texto adicional):`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 4096,
+      temperature: 0.2,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const responseText = message.content[0].text;
+    let batchClassification;
+
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      batchClassification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+    } catch (parseError) {
+      return res.status(500).json({
+        error: 'Error al parsear respuesta',
+        rawResponse: responseText
+      });
+    }
+
+    console.log(`✅ Batch clasificado: ${batchClassification.classifications?.length || 0} keywords procesadas`);
+
+    res.json({
+      success: true,
+      classifications: batchClassification.classifications,
+      usage: {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en /api/classify-keywords-batch:', error);
+    res.status(500).json({
+      error: 'Error interno: ' + error.message
+    });
+  }
+});
+
+// ENDPOINT 2 (LEGACY): Clasificar keywords desde LLM-POR-CLASIFICAR
 // Usa embeddings para pre-filtrar y luego LLM para decisión final
 app.post('/api/classify-keywords', async (req, res) => {
   try {

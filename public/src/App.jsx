@@ -549,126 +549,139 @@ function App(){
       let newGroupsCreated = 0;
       const classifiedKeywordIds = new Set(); // Rastrear keywords clasificadas por ID
 
-      // 2. Clasificar cada keyword
-      for (let i = 0; i < keywordsToClassify.length; i++) {
-        const kw = keywordsToClassify[i];
-        const kwEmbed = keywordEmbeddings[i];
+      // 2. Procesar keywords en batches de 15
+      const BATCH_SIZE = 15;
+      const totalBatches = Math.ceil(keywordsToClassify.length / BATCH_SIZE);
 
-        setSuccess(`Clasificando ${i + 1}/${keywordsToClassify.length}...`);
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const batchStart = batchIdx * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, keywordsToClassify.length);
+        const currentBatch = keywordsToClassify.slice(batchStart, batchEnd);
 
-        // 2.1 Pre-filtro con embeddings (producto punto)
-        const similarities = groupEmbeddings.map((gEmbed, idx) => ({
-          index: idx,
-          similarity: cosine(kwEmbed, gEmbed),
-          group: otherGroups[idx]
-        }));
+        setSuccess(`Clasificando batch ${batchIdx + 1}/${totalBatches} (${currentBatch.length} keywords)...`);
+        console.log(`\n🎯 Procesando batch ${batchIdx + 1}/${totalBatches}: ${currentBatch.length} keywords`);
 
-        // 2.2 Filtrar grupos con similitud > 0.3 y ordenar por similitud
-        const candidates = similarities
-          .filter(s => s.similarity > 0.3)
-          .sort((a, b) => b.similarity - a.similarity);
-        // No limitamos artificialmente, dejamos que el LLM evalúe todos los candidatos válidos
+        // 2.1 Preparar datos del batch con pre-filtro de embeddings
+        const keywordsBatch = currentBatch.map((kw, localIdx) => {
+          const globalIdx = batchStart + localIdx;
+          const kwEmbed = keywordEmbeddings[globalIdx];
 
-        console.log(`📊 Keyword "${kw.keyword}": ${candidates.length} candidatos con similitud > 0.3`);
+          // Pre-filtro con embeddings
+          const similarities = groupEmbeddings.map((gEmbed, idx) => ({
+            index: idx,
+            similarity: cosine(kwEmbed, gEmbed),
+            group: otherGroups[idx]
+          }));
 
-        if (candidates.length === 0) {
-          console.log(`⚠️ Keyword "${kw.keyword}" sin candidatos válidos, se mantiene en LLM-POR-CLASIFICAR`);
+          const candidates = similarities
+            .filter(s => s.similarity > 0.3)
+            .sort((a, b) => b.similarity - a.similarity);
+
+          console.log(`   📊 "${kw.keyword}": ${candidates.length} candidatos (similitud > 0.3)`);
+
+          if (candidates.length === 0) {
+            return null; // Se filtrará después
+          }
+
+          // Preparar candidatos para el LLM
+          const candidateGroups = candidates.map((c, mappedIndex) => ({
+            index: mappedIndex,
+            name: c.group.name,
+            similarity: c.similarity,
+            sampleKeywords: (c.group.children || [])
+              .filter(child => !child.isGroup)
+              .slice(0, 5)
+              .map(child => child.keyword || child.name)
+          }));
+
+          return {
+            keyword: kw.keyword,
+            keywordObj: kw,
+            candidateGroups,
+            candidatesRaw: candidates // Guardamos los candidatos originales para mapeo
+          };
+        }).filter(Boolean); // Remover nulls (keywords sin candidatos)
+
+        if (keywordsBatch.length === 0) {
+          console.log(`   ⚠️ Batch sin candidatos válidos, saltando...`);
           continue;
         }
 
-        // Si hay muchos candidatos, limitamos a los top 30 para no saturar el LLM
-        const topCandidates = candidates.slice(0, 30);
-        console.log(`   → Enviando ${topCandidates.length} candidatos al LLM`);
-
-        // 2.3 Preparar datos para el LLM
-        const candidateGroups = topCandidates.map((c, mappedIndex) => ({
-          index: mappedIndex, // Índice relativo en el array de candidatos enviado al LLM
-          originalIndex: c.index, // Índice original en otherGroups
-          name: c.group.name,
-          similarity: c.similarity,
-          sampleKeywords: (c.group.children || [])
-            .filter(child => !child.isGroup)
-            .slice(0, 5)
-            .map(child => child.keyword || child.name)
-        }));
-
-        // 2.4 Llamar al LLM para decisión final
-        const resp = await fetch(`${serverBase}/api/classify-keywords`, {
+        // 2.2 Llamar al LLM con el batch
+        const resp = await fetch(`${serverBase}/api/classify-keywords-batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            keyword: kw.keyword,
-            candidateGroups
-          })
+          body: JSON.stringify({ keywordsBatch })
         });
 
         if (!resp.ok) {
-          console.warn(`Error clasificando "${kw.keyword}", se mantiene en LLM-POR-CLASIFICAR`);
+          console.warn(`⚠️ Error clasificando batch ${batchIdx + 1}, saltando...`);
           continue;
         }
 
         const result = await resp.json();
-        const classification = result.classification;
+        const classifications = result.classifications || [];
 
-        console.log(`   → Respuesta LLM: selectedGroupIndex=${classification.selectedGroupIndex}, confidence=${classification.confidence}`);
+        console.log(`   ✅ Recibidas ${classifications.length} clasificaciones del LLM`);
 
-        // 2.5 Aplicar clasificación
-        if (classification.selectedGroupIndex !== -1) {
-          // Validar que el índice esté dentro del rango
-          if (classification.selectedGroupIndex >= topCandidates.length) {
-            console.warn(`⚠️ Índice inválido ${classification.selectedGroupIndex} para keyword "${kw.keyword}" (máx: ${topCandidates.length - 1}), se mantiene en LLM-POR-CLASIFICAR`);
-            continue;
-          }
+        // 2.3 Aplicar clasificaciones
+        for (const classification of classifications) {
+          const batchItem = keywordsBatch[classification.batchIndex];
+          if (!batchItem) continue;
 
-          // Mover a grupo existente
-          const targetCandidate = topCandidates[classification.selectedGroupIndex];
-          if (!targetCandidate || !targetCandidate.group) {
-            console.warn(`⚠️ Candidato inválido para keyword "${kw.keyword}", se mantiene en LLM-POR-CLASIFICAR`);
-            continue;
-          }
+          const kw = batchItem.keywordObj;
+          const candidates = batchItem.candidatesRaw;
 
-          const targetGroup = targetCandidate.group;
-          const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
+          console.log(`   → Clasificando "${kw.keyword}": grupo ${classification.selectedGroupIndex}`);
 
-          console.log(`   → Moviendo "${kw.keyword}" a grupo "${targetGroup.name}" (idx ${targetIdx})`);
+          if (classification.selectedGroupIndex !== -1) {
+            // Validar índice
+            if (classification.selectedGroupIndex >= candidates.length) {
+              console.warn(`      ⚠️ Índice inválido ${classification.selectedGroupIndex}, saltando...`);
+              continue;
+            }
 
-          if (targetIdx !== -1) {
-            updatedTree[targetIdx] = {
-              ...updatedTree[targetIdx],
-              children: [...(updatedTree[targetIdx].children || []), kw]
+            // Mover a grupo existente
+            const targetCandidate = candidates[classification.selectedGroupIndex];
+            const targetGroup = targetCandidate.group;
+            const targetIdx = updatedTree.findIndex(n => n.id === targetGroup.id);
+
+            if (targetIdx !== -1) {
+              updatedTree[targetIdx] = {
+                ...updatedTree[targetIdx],
+                children: [...(updatedTree[targetIdx].children || []), kw]
+              };
+              classifiedKeywordIds.add(kw.id);
+              classifiedCount++;
+              console.log(`      ✅ Movida a "${targetGroup.name}"`);
+            }
+          } else if (classification.suggestedGroupName) {
+            // Crear nuevo grupo
+            const newGroup = {
+              id: uid('group'),
+              name: classification.suggestedGroupName,
+              isGroup: true,
+              collapsed: false,
+              children: [kw]
             };
+            updatedTree.push(newGroup);
+
+            // Generar embedding para el nuevo grupo
+            otherGroups.push(newGroup);
+            const newGroupEmbed = await getEmbeddingsBatch([newGroup.name]);
+            groupEmbeddings.push(newGroupEmbed[0]);
+
             classifiedKeywordIds.add(kw.id);
+            newGroupsCreated++;
             classifiedCount++;
-            console.log(`   ✅ Keyword clasificada exitosamente en "${targetGroup.name}"`);
-          } else {
-            console.warn(`   ⚠️ No se encontró el grupo en updatedTree (id: ${targetGroup.id})`);
+
+            console.log(`      ✨ Nuevo grupo creado: "${classification.suggestedGroupName}"`);
           }
-        } else if (classification.suggestedGroupName) {
-          // Crear nuevo grupo
-          const newGroup = {
-            id: uid('group'),
-            name: classification.suggestedGroupName,
-            isGroup: true,
-            collapsed: false,
-            children: [kw]
-          };
-          updatedTree.push(newGroup);
-
-          // Agregar el nuevo grupo a otherGroups Y generar su embedding
-          otherGroups.push(newGroup);
-          const newGroupEmbed = await getEmbeddingsBatch([newGroup.name]);
-          groupEmbeddings.push(newGroupEmbed[0]);
-
-          classifiedKeywordIds.add(kw.id);
-          newGroupsCreated++;
-          classifiedCount++;
-
-          console.log(`✨ Nuevo grupo creado: "${classification.suggestedGroupName}" para keyword "${kw.keyword}"`);
         }
 
-        // Pequeña pausa para no saturar
-        if (i < keywordsToClassify.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+        // Pequeña pausa entre batches
+        if (batchIdx < totalBatches - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
 
