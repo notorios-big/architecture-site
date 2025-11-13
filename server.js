@@ -805,33 +805,31 @@ ${contextSection}
 CONTEXTO:
 - Un "clique" es un conjunto de grupos donde TODOS tienen alta similitud semántica entre sí
 - Debes decidir si fusionar cada clique en un solo grupo o mantenerlos separados
-- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda Y la MISMA URL
-- SÉ EXTREMADAMENTE ESTRICTO: La fusión es PERMANENTE y no se puede deshacer fácilmente
+- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda
+- La fusión ayuda a consolidar contenido y evitar canibalización de URLs
 
-CRITERIOS ESTRICTOS PARA FUSIONAR:
-✅ SÍ fusionar si TODOS se cumplen:
-1. Buscan EXACTAMENTE el mismo producto/servicio específico
-2. Son sinónimos o variaciones del MISMO término
-3. NO hay diferencias de género (hombre vs mujer)
-4. NO mezclan intenciones (transaccional vs informativa)
-5. Podrían responderse con la MISMA landing page
-6. Ejemplos válidos:
-   - ["Dupe Good Girl", "Clon Good Girl", "Réplica Good Girl"] ✅
-   - ["Dupe Sauvage", "Copia Sauvage Dior", "Imitación Sauvage"] ✅
+CRITERIOS PARA FUSIONAR:
+✅ SÍ fusionar si:
+1. Representan la MISMA intención de búsqueda principal
+2. Podrían responderse con la MISMA landing page
+3. Son sinónimos, variaciones o reformulaciones del mismo concepto
+4. Ejemplos válidos:
+   - ["ofertas perfumes", "perfumes oferta", "perfume baratos"] ✅ → todos buscan perfumes en promoción
+   - ["Dupe Good Girl", "Clon Good Girl", "Réplica Good Girl"] ✅ → mismo producto
+   - ["perfumes hombre dulces", "perfumes dulces para hombre"] ✅ → misma búsqueda
+   - ["mejores perfumes amaderados", "top perfumes amaderados"] ✅ → misma intención informativa
 
-❌ NO fusionar si CUALQUIERA se cumple:
-1. Buscan productos DIFERENTES (aunque sean del mismo tipo)
+❌ NO fusionar si:
+1. Buscan productos ESPECÍFICOS diferentes
    - ["Dupe Good Girl", "Dupe 212 VIP"] ❌ → productos distintos
-2. Diferentes géneros mezclados
+2. Géneros diferentes mezclados
    - ["Perfumes hombre baratos", "Ofertas perfumes mujer"] ❌ → géneros distintos
-3. Intenciones diferentes
-   - ["Perfume hombre oferta", "Perfumes amaderados hombre"] ❌ → transaccional vs informativa
-4. Categorías vs productos específicos
-   - ["Perfumes Carolina Herrera", "Dupe Good Girl"] ❌ → categoría vs producto
-5. Características diferentes
-   - ["Perfumes dulces hombre", "Perfumes cítricos hombre"] ❌ → características opuestas
+3. Categorías diferentes
+   - ["Perfumes Carolina Herrera", "Perfumes Dior"] ❌ → marcas distintas
+4. Características OPUESTAS o MUY diferentes
+   - ["Perfumes dulces", "Perfumes cítricos"] ❌ → características opuestas
 
-REGLA DE ORO: Ante la duda, NO FUSIONAR. Es mejor tener grupos separados que mezclar incorrectamente.
+REGLA: Si los grupos representan LA MISMA búsqueda con palabras diferentes, FUSIONA. Si son búsquedas relacionadas pero distintas, NO FUSIONAR.
 
 CLIQUES A EVALUAR:
 ${JSON.stringify(cliquesData, null, 2)}
@@ -844,8 +842,7 @@ FORMATO DE RESPUESTA:
     {
       "cliqueIndex": 0,
       "shouldMerge": true,
-      "finalName": "Dupe Good Girl Carolina Herrera",
-      "reason": "Los 3 grupos buscan dupes del mismo perfume",
+      "reason": "Los 3 grupos buscan perfumes en promoción/baratos, misma intención comercial",
       "confidence": 0.95
     },
     {
@@ -857,11 +854,12 @@ FORMATO DE RESPUESTA:
   ]
 }
 
-REGLAS:
+REGLAS CRÍTICAS:
 - Devuelve una decisión por cada clique
-- Si shouldMerge es true, incluye finalName (nombre del grupo fusionado)
-- El finalName debe ser el más representativo o combinar los nombres existentes
+- NO inventes ni modifiques nombres de grupos
+- NO incluyas el campo "finalName" - el sistema usará automáticamente el nombre del grupo con mayor volumen
 - Confidence debe estar entre 0 y 1
+- Solo decide si fusionar (true) o no (false) con la razón
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
@@ -938,9 +936,18 @@ Responde AHORA con el JSON (sin texto adicional):`;
       .filter(d => d.shouldMerge)
       .map(d => {
         const cliqueIndices = cliques[d.cliqueIndex];
+
+        // Encontrar el grupo con mayor volumen del clique
+        const cliqueGroups = cliqueIndices.map(idx => groups[idx]);
+        const largestGroup = cliqueGroups.reduce((max, g) => {
+          const maxVol = max.volume || 0;
+          const gVol = g.volume || 0;
+          return gVol > maxVol ? g : max;
+        }, cliqueGroups[0]);
+
         return {
           groupIndices: cliqueIndices,
-          suggestedName: d.finalName,
+          suggestedName: largestGroup.name, // Usar el nombre del grupo con mayor volumen
           reason: d.reason,
           confidence: d.confidence
         };

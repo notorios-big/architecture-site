@@ -404,11 +404,16 @@ function App(){
     setError('');
 
     try {
+      console.log(`\n🚀 Iniciando agrupación de ${keywords.length} keywords...`);
+
+      setProgressInfo({ show: true, current: 1, total: 4, message: 'Generando embeddings' });
       const texts = keywords.map(k => k.keyword);
       const embeddings = await getEmbeddingsBatch(texts);
       const withEmbeds = keywords.map((kw, i) => ({ ...kw, embedding: embeddings[i] }));
+      console.log(`✓ ${embeddings.length} embeddings generados`);
 
       // 1. Calcular matriz de similitud completa
+      setProgressInfo({ show: true, current: 2, total: 4, message: 'Calculando similitudes' });
       const similarities = [];
       for (let i = 0; i < withEmbeds.length; i++) {
         similarities[i] = [];
@@ -428,6 +433,8 @@ function App(){
       degrees.sort((a, b) => b.degree - a.degree);
 
       // 4. Aplicar algoritmo greedy-clique con orden por centralidad
+      setProgressInfo({ show: true, current: 3, total: 4, message: 'Aplicando algoritmo de agrupación' });
+      console.log(`✓ Aplicando algoritmo greedy-clique...`);
       const groups = [];
       const used = new Set();
 
@@ -468,12 +475,16 @@ function App(){
         });
       }
 
+      setProgressInfo({ show: true, current: 4, total: 4, message: 'Finalizando agrupación' });
       const sortedGroups = sortGroupChildren(groups);
       setTree(sortedGroups);
+      console.log(`✅ Agrupación completada: ${groups.length} grupos creados`);
       setSuccess(`Agrupación completada: ${groups.length} grupos creados`);
     } catch (err) {
+      console.error('❌ Error en autoGroup:', err);
       setError('Error al agrupar: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -1080,6 +1091,7 @@ function App(){
         const batchEnd = Math.min(batchStart + BATCH_SIZE, cliques.length);
         const batchCliques = cliques.slice(batchStart, batchEnd);
 
+        setProgressInfo({ show: true, current: batchIdx + 1, total: totalBatches, message: 'Evaluando cliques con IA' });
         setSuccess(`Evaluando batch ${batchIdx + 1}/${totalBatches} (${batchCliques.length} cliques)...`);
         console.log(`\n   Batch ${batchIdx + 1}/${totalBatches}: ${batchCliques.length} cliques`);
 
@@ -1213,6 +1225,7 @@ function App(){
       console.error('❌ Error en mergeSimilarGroups:', err);
       setError('Error al fusionar grupos: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -1230,6 +1243,7 @@ function App(){
     setError('');
 
     try {
+      setProgressInfo({ show: true, current: 1, total: 3, message: 'Analizando jerarquías' });
       setSuccess('Analizando jerarquías...');
 
       const groupsData = onlyGroups.map(group => ({
@@ -1241,6 +1255,7 @@ function App(){
           .map(child => child.keyword || child.name)
       }));
 
+      setProgressInfo({ show: true, current: 2, total: 3, message: 'Consultando IA' });
       const resp = await fetch(`${serverBase}/api/generate-hierarchies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1258,11 +1273,13 @@ function App(){
 
       if (!suggestions.hierarchies || suggestions.hierarchies.length === 0) {
         setSuccess('No se encontraron jerarquías válidas para crear.');
+        setProgressInfo({ show: false, current: 0, total: 0, message: '' });
         setLoading(false);
         return;
       }
 
       // Aplicar jerarquías
+      setProgressInfo({ show: true, current: 3, total: 3, message: 'Aplicando jerarquías' });
       let updatedTree = [...tree];
 
       suggestions.hierarchies.forEach(hierarchy => {
@@ -1299,6 +1316,7 @@ function App(){
     } catch (err) {
       setError('Error al generar jerarquías: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -1632,7 +1650,7 @@ function App(){
               {keywords.length>0 && (
                 <>
                   <div className="flex items-center gap-3 glass px-4 py-2 rounded-lg text-white">
-                    <span className="text-sm font-medium">Threshold</span>
+                    <span className="text-sm font-medium bg-gray-900 text-white px-3 py-1 rounded shadow-md">Threshold:</span>
                     <input type="range" min="0.5" max="1.0" step="0.05"
                            value={threshold}
                            onChange={(e)=>setThreshold(parseFloat(e.target.value))}
