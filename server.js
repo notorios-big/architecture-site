@@ -705,17 +705,57 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const responseText = message.content[0].text;
     let hierarchySuggestions;
 
+    // Estrategia multi-nivel para parsear JSON robusto (igual que en merge-groups)
+    let parseStrategy = '';
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      hierarchySuggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
-    } catch (parseError) {
-      return res.status(500).json({
-        error: 'Error al parsear respuesta del modelo',
-        details: parseError.message,
-        rawResponse: responseText.slice(0, 500)
-      });
+      // Intento 1: Parsear directo (más común cuando funciona bien)
+      hierarchySuggestions = JSON.parse(responseText);
+      parseStrategy = 'directo';
+    } catch (e1) {
+      try {
+        // Intento 2: Remover markdown code blocks (```json ... ```)
+        let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+        hierarchySuggestions = JSON.parse(jsonMatch[0]);
+        parseStrategy = 'sin-markdown';
+      } catch (e2) {
+        try {
+          // Intento 3: Reparar JSON truncado (cerrar arrays/objetos)
+          let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+          const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+
+          let jsonStr = jsonMatch[0];
+          // Remover comas finales sueltas
+          jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+          // Si el array "hierarchies" está abierto pero no cerrado, cerrarlo
+          if (jsonStr.includes('"hierarchies"') && !jsonStr.match(/\]\s*\}/)) {
+            jsonStr = jsonStr.trim().replace(/,?\s*$/, '') + ']}';
+          }
+          hierarchySuggestions = JSON.parse(jsonStr);
+          parseStrategy = 'reparación';
+        } catch (e3) {
+          // Intento 4: Fallar con información útil
+          console.error('❌ Error parseando respuesta después de 3 intentos:');
+          console.error('  - Intento 1 (directo):', e1.message);
+          console.error('  - Intento 2 (sin-markdown):', e2.message);
+          console.error('  - Intento 3 (reparación):', e3.message);
+          console.error('📄 Últimos 500 caracteres de respuesta:', responseText.slice(-500));
+          console.error('📏 Longitud total de respuesta:', responseText.length);
+
+          return res.status(500).json({
+            error: 'Error al parsear respuesta del modelo',
+            details: 'JSON malformado o incompleto después de múltiples intentos',
+            responseLength: responseText.length,
+            responseTail: responseText.slice(-500),
+            attempts: [e1.message, e2.message, e3.message]
+          });
+        }
+      }
     }
 
+    console.log(`✅ Respuesta parseada exitosamente (estrategia: ${parseStrategy})`);
     console.log('✅ Jerarquías generadas:', hierarchySuggestions.hierarchies?.length || 0);
 
     res.json({
