@@ -176,13 +176,8 @@ const sortOnlyAffectedNode = (tree, targetId) => {
 
 function App(){
   const [keywords,setKeywords] = useState([]);
-  const [tree,setTree] = useState(()=>{
-    const raw = storage.getItem('keywordTree');
-    if (!raw) return [];
-    try { return JSON.parse(raw); } catch { return []; }
-  });
-
-  const [threshold,setThreshold] = useState(Number(storage.getItem('threshold')||0.8));
+  const [tree,setTree] = useState([]);
+  const [threshold,setThreshold] = useState(0.8);
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState('');
   const [success,setSuccess] = useState('');
@@ -195,9 +190,125 @@ function App(){
   const [activeView, setActiveView] = useState('tree');
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [keywordModal, setKeywordModal] = useState(null);
+  const [stateLoaded, setStateLoaded] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(()=>{ storage.setItem('threshold', String(threshold)); },[threshold]);
-  useEffect(()=>{ storage.setItem('keywordTree', JSON.stringify(tree)); },[tree]);
+  // Configuración del servidor
+  const serverBase = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:3000'
+    : '';
+
+  // Cargar threshold desde localStorage (solo este valor)
+  useEffect(() => {
+    const savedThreshold = storage.getItem('threshold');
+    if (savedThreshold) {
+      setThreshold(Number(savedThreshold));
+    }
+  }, []);
+
+  // Cargar estado desde servidor al iniciar
+  useEffect(() => {
+    const loadState = async () => {
+      try {
+        console.log('📂 Cargando estado desde servidor...');
+        const resp = await fetch(`${serverBase}/api/load-state`);
+
+        if (resp.ok) {
+          const data = await resp.json();
+
+          if (data.tree && Array.isArray(data.tree)) {
+            setTree(data.tree);
+            console.log(`✅ Árbol cargado: ${data.tree.length} nodos`);
+          } else {
+            // Fallback a localStorage si no hay en servidor
+            const localTree = storage.getItem('keywordTree');
+            if (localTree) {
+              try {
+                const parsed = JSON.parse(localTree);
+                setTree(parsed);
+                console.log('✅ Árbol cargado desde localStorage (fallback)');
+              } catch (e) {
+                console.warn('⚠️ Error parseando localStorage:', e);
+              }
+            }
+          }
+
+          if (data.keywords && Array.isArray(data.keywords)) {
+            setKeywords(data.keywords);
+            console.log(`✅ Keywords cargadas: ${data.keywords.length} keywords`);
+          }
+        } else {
+          console.warn('⚠️ No se pudo cargar estado del servidor, usando localStorage');
+          // Fallback a localStorage
+          const localTree = storage.getItem('keywordTree');
+          if (localTree) {
+            try {
+              const parsed = JSON.parse(localTree);
+              setTree(parsed);
+            } catch (e) {
+              console.warn('Error parseando localStorage:', e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error cargando estado:', error);
+        // Fallback a localStorage en caso de error
+        const localTree = storage.getItem('keywordTree');
+        if (localTree) {
+          try {
+            const parsed = JSON.parse(localTree);
+            setTree(parsed);
+          } catch (e) {
+            console.warn('Error parseando localStorage:', e);
+          }
+        }
+      } finally {
+        setStateLoaded(true);
+      }
+    };
+
+    loadState();
+  }, []);
+
+  // Guardar threshold en localStorage
+  useEffect(() => {
+    if (stateLoaded) {
+      storage.setItem('threshold', String(threshold));
+    }
+  }, [threshold, stateLoaded]);
+
+  // Guardar estado en servidor cuando cambia el árbol
+  useEffect(() => {
+    if (!stateLoaded) return; // No guardar hasta que se haya cargado el estado inicial
+
+    const saveState = async () => {
+      try {
+        // Guardar también en localStorage como backup
+        storage.setItem('keywordTree', JSON.stringify(tree));
+
+        // Guardar en servidor
+        const resp = await fetch(`${serverBase}/api/save-state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords, tree })
+        });
+
+        if (resp.ok) {
+          console.log('💾 Estado guardado en servidor');
+        } else {
+          console.warn('⚠️ Error guardando en servidor, pero localStorage funciona');
+        }
+      } catch (error) {
+        console.error('❌ Error guardando estado:', error);
+        // localStorage ya se guardó arriba como backup
+      }
+    };
+
+    // Debounce para no saturar el servidor
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [tree, keywords, stateLoaded]);
+
   useEffect(()=>{ if(success){ const t = setTimeout(()=>setSuccess(''), 3000); return ()=>clearTimeout(t); } },[success]);
 
   const onCSV = (e)=>{
@@ -224,10 +335,6 @@ function App(){
     };
     reader.readAsText(f);
   };
-
-  const serverBase = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') 
-    ? 'http://localhost:3000' 
-    : '';
 
   const getEmbeddingsBatch = async (texts) => {
     const resp = await fetch(`${serverBase}/api/embeddings`, {
@@ -258,7 +365,7 @@ function App(){
 
   const sortGroupChildren = useCallback((nodes) => {
     volumeCacheRef.current.clear();
-    
+
     const sortedNodes = [...nodes].sort((a, b) => {
       const aIsGroup = !!a?.isGroup;
       const bIsGroup = !!b?.isGroup;
@@ -271,7 +378,15 @@ function App(){
       return labelA.localeCompare(labelB);
     }).map(n => {
       if (n.isGroup && n.children) {
-        return { ...n, children: sortGroupChildren(n.children) };
+        const childrenCount = n.children.length;
+        // Colapsar automáticamente si tiene más de 10 items (keywords + subgrupos)
+        const shouldCollapse = childrenCount > 10;
+
+        return {
+          ...n,
+          collapsed: shouldCollapse,
+          children: sortGroupChildren(n.children)
+        };
       }
       return n;
     });
@@ -1042,6 +1157,68 @@ function App(){
     }
   };
 
+  // FUNCIÓN PIPELINE COMPLETO: Ejecutar todos los pasos secuencialmente
+  const runCompletePipeline = async () => {
+    if (!keywords.length) {
+      setError('Primero carga un CSV.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      console.log('\n════════════════════════════════════════════════════');
+      console.log('🚀 INICIANDO PIPELINE COMPLETO');
+      console.log('════════════════════════════════════════════════════\n');
+
+      // PASO 1: Agrupación automática
+      setSuccess('Paso 1/5: Agrupación automática...');
+      console.log('📍 PASO 1/5: Agrupación automática');
+      await autoGroup();
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Pausa para que se actualice el estado
+
+      // PASO 2: Limpieza de grupos
+      setSuccess('Paso 2/5: Limpieza de grupos...');
+      console.log('\n📍 PASO 2/5: Limpieza de grupos');
+      await cleanGroups();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // PASO 3: Clasificación de keywords (si hay grupo LLM-POR-CLASIFICAR)
+      setSuccess('Paso 3/5: Clasificación de keywords...');
+      console.log('\n📍 PASO 3/5: Clasificación de keywords');
+      const toClassifyExists = tree.find(n => n.name === 'LLM-POR-CLASIFICAR' && n.children?.length > 0);
+      if (toClassifyExists) {
+        await classifyKeywords();
+      } else {
+        console.log('   ⊗ No hay keywords por clasificar, saltando paso');
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // PASO 4: Fusión de grupos similares
+      setSuccess('Paso 4/5: Fusión de grupos similares...');
+      console.log('\n📍 PASO 4/5: Fusión de grupos similares');
+      await mergeSimilarGroups(0.7);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // PASO 5: Generación de jerarquías
+      setSuccess('Paso 5/5: Generación de jerarquías...');
+      console.log('\n📍 PASO 5/5: Generación de jerarquías');
+      await generateHierarchies();
+
+      console.log('\n════════════════════════════════════════════════════');
+      console.log('✅ PIPELINE COMPLETO FINALIZADO');
+      console.log('════════════════════════════════════════════════════\n');
+
+      setSuccess('✅ Pipeline completo finalizado exitosamente');
+    } catch (err) {
+      console.error('❌ Error en pipeline completo:', err);
+      setError('Error en pipeline completo: ' + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // FUNCIÓN 3: Generar jerarquías padre-hijo
   const generateHierarchies = async () => {
     const onlyGroups = tree.filter(node => node.isGroup);
@@ -1275,7 +1452,48 @@ function App(){
     const a = document.createElement('a');
     a.href=url; a.download='keyword-tree.json'; a.click();
     URL.revokeObjectURL(url);
-    setSuccess('Archivo exportado correctamente');
+    setSuccess('Archivo JSON exportado correctamente');
+  };
+
+  const exportCSV = ()=>{
+    // Función recursiva para recorrer el árbol y construir filas CSV
+    const rows = [];
+    rows.push(['Path Jerárquico', 'Volumen']); // Header
+
+    const traverse = (nodes, parentPath = []) => {
+      for (const node of nodes) {
+        const currentPath = [...parentPath, node.isGroup ? node.name : node.keyword];
+
+        if (!node.isGroup) {
+          // Si es una keyword, agregar fila
+          const pathString = currentPath.join(' > ');
+          rows.push([pathString, node.volume || 0]);
+        } else if (node.children && node.children.length > 0) {
+          // Si es un grupo, seguir recorriendo sus hijos
+          traverse(node.children, currentPath);
+        }
+      }
+    };
+
+    traverse(tree);
+
+    // Convertir a CSV
+    const csvContent = rows.map(row => {
+      // Escapar comas y comillas en el path
+      const path = String(row[0]).replace(/"/g, '""');
+      const volume = row[1];
+      return `"${path}",${volume}`;
+    }).join('\n');
+
+    // Descargar
+    const blob = new Blob([csvContent], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url;
+    a.download='keyword-tree.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    setSuccess(`Archivo CSV exportado: ${rows.length - 1} keywords`);
   };
   
   const importJSON = (e)=>{
@@ -1303,6 +1521,49 @@ function App(){
     setError('');
     setSuccess('Todo ha sido eliminado');
   };
+
+  // Filtrar árbol según término de búsqueda
+  const filterTree = useCallback((nodes, term) => {
+    if (!term || term.trim() === '') return nodes;
+
+    const normalizedTerm = term.toLowerCase().trim();
+
+    const filterNode = (node) => {
+      const nodeName = (node.isGroup ? node.name : node.keyword || '').toLowerCase();
+      const matches = nodeName.includes(normalizedTerm);
+
+      if (!node.isGroup) {
+        // Si es keyword, solo mostrarla si coincide
+        return matches ? node : null;
+      }
+
+      // Si es grupo, filtrar sus hijos recursivamente
+      const filteredChildren = node.children
+        ? node.children.map(filterNode).filter(Boolean)
+        : [];
+
+      // Mostrar el grupo si:
+      // 1. Su nombre coincide, o
+      // 2. Tiene hijos que coinciden
+      if (matches || filteredChildren.length > 0) {
+        return {
+          ...node,
+          children: filteredChildren,
+          // Expandir automáticamente si tiene coincidencias en hijos
+          collapsed: filteredChildren.length > 0 ? false : node.collapsed
+        };
+      }
+
+      return null;
+    };
+
+    return nodes.map(filterNode).filter(Boolean);
+  }, []);
+
+  // Aplicar filtro al árbol
+  const filteredTree = useMemo(() => {
+    return filterTree(tree, searchTerm);
+  }, [tree, searchTerm, filterTree]);
 
   const toggleFlowNode = useCallback((nodeId) => {
     setExpandedNodes(prev => {
@@ -1354,6 +1615,12 @@ function App(){
                           className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg">
                     {loading? '⏳ Agrupando...':'✨ Crear Agrupación'}
                   </button>
+
+                  <button onClick={runCompletePipeline} disabled={loading}
+                          className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                          data-tooltip="Ejecuta todos los pasos del pipeline automáticamente">
+                    {loading? '⏳ Procesando...':'🚀 Pipeline Completo'}
+                  </button>
                 </>
               )}
 
@@ -1393,11 +1660,21 @@ function App(){
                 <IPlus size={18}/> Grupo
               </button>
 
-              <button onClick={exportJSON} disabled={!tree.length}
-                      className="p-2 bg-white/10 text-white rounded-lg hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all tooltip"
-                      data-tooltip="Exportar JSON">
-                <IDownload size={20}/>
-              </button>
+              <div className="flex gap-2">
+                <button onClick={exportJSON} disabled={!tree.length}
+                        className="px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all tooltip flex items-center gap-2"
+                        data-tooltip="Exportar JSON">
+                  <IDownload size={18}/>
+                  <span className="text-xs font-medium">JSON</span>
+                </button>
+
+                <button onClick={exportCSV} disabled={!tree.length}
+                        className="px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all tooltip flex items-center gap-2"
+                        data-tooltip="Exportar CSV con paths jerárquicos">
+                  <IDownload size={18}/>
+                  <span className="text-xs font-medium">CSV</span>
+                </button>
+              </div>
 
               <label className="p-2 bg-white/10 text-white rounded-lg cursor-pointer hover:bg-white/20 transition-all tooltip"
                      data-tooltip="Importar JSON">
@@ -1420,21 +1697,46 @@ function App(){
           </div>
 
           {tree.length > 0 && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveView('tree')}
-                className={`tab-button flex items-center gap-2 ${activeView === 'tree' ? 'active' : ''}`}
-              >
-                <IList size={18}/>
-                Vista de Árbol
-              </button>
-              <button
-                onClick={() => setActiveView('flow')}
-                className={`tab-button flex items-center gap-2 ${activeView === 'flow' ? 'active' : ''}`}
-              >
-                <INetwork size={18}/>
-                Vista de Flujo
-              </button>
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setActiveView('tree')}
+                  className={`tab-button flex items-center gap-2 ${activeView === 'tree' ? 'active' : ''}`}
+                >
+                  <IList size={18}/>
+                  Vista de Árbol
+                </button>
+                <button
+                  onClick={() => setActiveView('flow')}
+                  className={`tab-button flex items-center gap-2 ${activeView === 'flow' ? 'active' : ''}`}
+                >
+                  <INetwork size={18}/>
+                  Vista de Flujo
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar keywords o grupos..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-2 pl-10 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition-all"
+                  >
+                    <IX size={16}/>
+                  </button>
+                )}
+                {searchTerm && (
+                  <div className="mt-2 text-xs text-white/70">
+                    Mostrando {filteredTree.length} de {tree.length} grupos
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1472,7 +1774,7 @@ function App(){
           <>
             {activeView === 'tree' && window.TreeView && (
               <window.TreeView
-                tree={tree}
+                tree={filteredTree}
                 dragging={dragging}
                 dragOver={dragOver}
                 editingId={editingId}
@@ -1492,7 +1794,7 @@ function App(){
 
             {activeView === 'flow' && window.FlowView && (
               <window.FlowView
-                tree={tree}
+                tree={filteredTree}
                 expandedNodes={expandedNodes}
                 toggleFlowNode={toggleFlowNode}
                 renameNode={renameNode}

@@ -868,7 +868,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'claude-haiku-4-5',
         max_tokens: 16384, // Aumentado para manejar muchos cliques
         temperature: 0.1,
         messages: [{ role: 'user', content: prompt }]
@@ -965,6 +965,103 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const userMessage = formatUserError(error, 'fusión de grupos');
     res.status(500).json({
       error: userMessage,
+      details: error.message
+    });
+  }
+});
+
+// ENDPOINT 5: Guardar estado completo (keywords + tree)
+// Guarda keywords.json y tree-structure.json en el directorio data/
+app.post('/api/save-state', async (req, res) => {
+  try {
+    const { keywords, tree } = req.body;
+
+    if (!Array.isArray(keywords) && !Array.isArray(tree)) {
+      return res.status(400).json({
+        error: 'Se requiere al menos keywords o tree'
+      });
+    }
+
+    const dataDir = path.join(__dirname, 'data');
+
+    // Asegurar que el directorio existe
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    let saved = [];
+
+    // Guardar keywords.json si se proporcionó
+    if (Array.isArray(keywords)) {
+      const keywordsPath = path.join(dataDir, 'keywords.json');
+      fs.writeFileSync(keywordsPath, JSON.stringify(keywords, null, 2), 'utf8');
+      saved.push('keywords.json');
+      console.log(`💾 Guardado keywords.json: ${keywords.length} keywords`);
+    }
+
+    // Guardar tree-structure.json si se proporcionó
+    if (Array.isArray(tree)) {
+      const treePath = path.join(dataDir, 'tree-structure.json');
+      fs.writeFileSync(treePath, JSON.stringify(tree, null, 2), 'utf8');
+      saved.push('tree-structure.json');
+      console.log(`💾 Guardado tree-structure.json: ${tree.length} nodos raíz`);
+    }
+
+    res.json({
+      success: true,
+      saved,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error en /api/save-state:', error);
+    res.status(500).json({
+      error: 'Error al guardar estado',
+      details: error.message
+    });
+  }
+});
+
+// ENDPOINT 6: Cargar estado completo (keywords + tree)
+// Carga keywords.json y tree-structure.json desde el directorio data/
+app.get('/api/load-state', async (req, res) => {
+  try {
+    const dataDir = path.join(__dirname, 'data');
+    const keywordsPath = path.join(dataDir, 'keywords.json');
+    const treePath = path.join(dataDir, 'tree-structure.json');
+
+    const result = {
+      keywords: null,
+      tree: null,
+      loaded: []
+    };
+
+    // Cargar keywords.json si existe
+    if (fs.existsSync(keywordsPath)) {
+      const keywordsData = fs.readFileSync(keywordsPath, 'utf8');
+      result.keywords = JSON.parse(keywordsData);
+      result.loaded.push('keywords.json');
+      console.log(`📂 Cargado keywords.json: ${result.keywords?.length || 0} keywords`);
+    }
+
+    // Cargar tree-structure.json si existe
+    if (fs.existsSync(treePath)) {
+      const treeData = fs.readFileSync(treePath, 'utf8');
+      result.tree = JSON.parse(treeData);
+      result.loaded.push('tree-structure.json');
+      console.log(`📂 Cargado tree-structure.json: ${result.tree?.length || 0} nodos raíz`);
+    }
+
+    res.json({
+      success: true,
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error en /api/load-state:', error);
+    res.status(500).json({
+      error: 'Error al cargar estado',
       details: error.message
     });
   }
