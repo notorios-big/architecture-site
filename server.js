@@ -231,7 +231,7 @@ Usa este contexto para entender:
 - Ejemplos de buenos y malos grupos
 ` : '';
 
-    const prompt = `Eres un experto en SEO y análisis de keywords. Tu tarea es LIMPIAR grupos de keywords, identificando palabras que NO pertenecen a cada grupo y asignando títulos representativos.
+    const prompt = `Eres un experto en SEO y análisis de keywords. Tu tarea es LIMPIAR grupos de keywords, identificando palabras que NO pertenecen a cada grupo.
 
 ${contextSection}
 
@@ -243,6 +243,7 @@ OBJETIVO:
    - "dupe good girl" → URL diferente a "dupe 212 vip"
    - Solo agrupa keywords que podrían responderse en la MISMA landing page
 4. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
+5. IMPORTANTE: NO cambies ni sugieras nombres para los grupos. El nombre del grupo siempre debe ser la keyword con mayor volumen dentro del grupo.
 
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
@@ -650,18 +651,21 @@ ${JSON.stringify(nicheContext, null, 2)}
 ESPECIALMENTE REVISA LA SECCIÓN: jerarquias_logicas
 ` : '';
 
-    const prompt = `Eres un experto en arquitectura de información y SEO. Debes crear conexiones padre-hijo entre grupos de keywords.
+    const prompt = `Eres un experto en arquitectura de información y SEO. Debes crear conexiones padre-hijo entre grupos de keywords para crear una estructura jerárquica lógica.
 
 ${contextSection}
 
 REGLAS PARA JERARQUÍAS:
-1. Un grupo PADRE debe ser una categoría/listado general
-2. Los grupos HIJOS deben ser productos/subcategorías específicas que pertenecen al padre
-3. Ejemplos VÁLIDOS:
+1. Un grupo PADRE debe ser una categoría/listado general o término más amplio
+2. Los grupos HIJOS deben ser productos/subcategorías específicas que pertenecen lógicamente al padre
+3. Ejemplos VÁLIDOS de jerarquías:
+   - Padre: "Perfumes en Oferta" → Hijos: ["Perfumes Oferta para Hombre", "Perfumes Oferta para Mujer"]
    - Padre: "Dupes Carolina Herrera" → Hijos: ["Dupe Good Girl", "Dupe 212 VIP"]
    - Padre: "Perfumes Dulces Mujer" → Hijos: ["Dupe Good Girl", "Dupe La Vie Est Belle"]
-4. NO crear jerarquías si los grupos son del mismo nivel de especificidad
-5. Solo crear jerarquías cuando tenga sentido semántico Y de arquitectura web
+   - Padre: "Perfumes Amaderados" → Hijos: ["Perfumes Amaderados Hombre", "Perfumes Amaderados Mujer"]
+4. Busca ACTIVAMENTE jerarquías entre los grupos. Si un grupo es una versión más general de otros, créala.
+5. NO crear jerarquías si los grupos son del mismo nivel de especificidad (ej: no poner "Dupe Good Girl" como padre de "Dupe 212 VIP")
+6. Las jerarquías deben tener sentido semántico Y de arquitectura web (páginas categoría → páginas producto)
 
 GRUPOS DISPONIBLES:
 ${JSON.stringify(groupsData, null, 2)}
@@ -676,7 +680,7 @@ Si hay jerarquías válidas:
     {
       "parentIndex": 0,
       "childrenIndices": [3, 5, 8],
-      "reason": "El grupo 0 es categoría general, los hijos son productos específicos de esa categoría",
+      "reason": "El grupo 0 ('Perfumes en Oferta') es categoría general, los hijos son versiones específicas por género",
       "confidence": 0.9
     }
   ]
@@ -687,12 +691,14 @@ Si NO hay jerarquías válidas:
   "hierarchies": []
 }
 
+NOTA: Revisa TODOS los grupos cuidadosamente buscando relaciones de generalidad/especificidad. Es mejor encontrar jerarquías válidas que no encontrar ninguna.
+
 Responde AHORA con el JSON (sin texto adicional):`;
 
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-5',
         max_tokens: 4096,
         temperature: 0.3,
         messages: [{ role: 'user', content: prompt }]
@@ -906,7 +912,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-5',
         max_tokens: 16384, // Aumentado para manejar muchos cliques
         temperature: 0.1,
         messages: [{ role: 'user', content: prompt }]
