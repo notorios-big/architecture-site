@@ -11,6 +11,7 @@ const FlowView = ({
   toggleFlowNode,
   renameNode,
   deleteNode,
+  promoteToRoot,
   setKeywordModal,
   onMoveNode
 }) => {
@@ -84,13 +85,19 @@ const FlowView = ({
         if (confirm('¿Eliminar este nodo?')) {
           deleteNode(nodeId);
         }
+      },
+      promoteToRoot: (nodeId) => {
+        console.log('Promote to root:', nodeId);
+        if (promoteToRoot) {
+          promoteToRoot(nodeId);
+        }
       }
     };
 
     return () => {
       delete window.flowCallbacks;
     };
-  }, [tree, toggleFlowNode, renameNode, deleteNode, setKeywordModal]);
+  }, [tree, toggleFlowNode, renameNode, deleteNode, promoteToRoot, setKeywordModal]);
 
   // Función auxiliar para encontrar un nodo por ID
   const findNodeById = (nodes, id) => {
@@ -105,7 +112,7 @@ const FlowView = ({
   };
 
   // Generar HTML para un nodo
-  const generateNodeHTML = (node) => {
+  const generateNodeHTML = (node, hasParent = false) => {
     const volume = nodeVolume(node);
     const isExpanded = expandedNodes.has(node.id);
 
@@ -140,6 +147,20 @@ const FlowView = ({
             <span id="display-name-${node.id}" class="flex-1 text-white font-semibold text-sm" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
               ${nodeName}
             </span>
+
+            ${hasParent && node.isGroup ? `
+              <button
+                onclick="window.flowCallbacks.promoteToRoot('${node.id}')"
+                style="padding: 4px; border-radius: 4px; transition: all 0.2s;"
+                onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+                onmouseout="this.style.background='transparent'"
+                title="Promover a raíz"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                </svg>
+              </button>
+            ` : ''}
 
             <button
               onclick="window.flowCallbacks.deleteNode('${node.id}')"
@@ -318,7 +339,7 @@ const FlowView = ({
         const xPosition = level * HORIZONTAL_SPACING + 50;
 
         // Generar HTML del nodo
-        const html = generateNodeHTML(node);
+        const html = generateNodeHTML(node, parentId !== null);
 
         // Agregar nodo a Drawflow y capturar el ID real que devuelve
         const currentDrawflowId = editor.addNode(

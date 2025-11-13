@@ -176,13 +176,8 @@ const sortOnlyAffectedNode = (tree, targetId) => {
 
 function App(){
   const [keywords,setKeywords] = useState([]);
-  const [tree,setTree] = useState(()=>{
-    const raw = storage.getItem('keywordTree');
-    if (!raw) return [];
-    try { return JSON.parse(raw); } catch { return []; }
-  });
-
-  const [threshold,setThreshold] = useState(Number(storage.getItem('threshold')||0.8));
+  const [tree,setTree] = useState([]);
+  const [threshold,setThreshold] = useState(0.8);
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState('');
   const [success,setSuccess] = useState('');
@@ -195,9 +190,126 @@ function App(){
   const [activeView, setActiveView] = useState('tree');
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [keywordModal, setKeywordModal] = useState(null);
+  const [stateLoaded, setStateLoaded] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [progressInfo, setProgressInfo] = useState({ show: false, current: 0, total: 0, message: '' });
 
-  useEffect(()=>{ storage.setItem('threshold', String(threshold)); },[threshold]);
-  useEffect(()=>{ storage.setItem('keywordTree', JSON.stringify(tree)); },[tree]);
+  // Configuración del servidor
+  const serverBase = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:3000'
+    : '';
+
+  // Cargar threshold desde localStorage (solo este valor)
+  useEffect(() => {
+    const savedThreshold = storage.getItem('threshold');
+    if (savedThreshold) {
+      setThreshold(Number(savedThreshold));
+    }
+  }, []);
+
+  // Cargar estado desde servidor al iniciar
+  useEffect(() => {
+    const loadState = async () => {
+      try {
+        console.log('📂 Cargando estado desde servidor...');
+        const resp = await fetch(`${serverBase}/api/load-state`);
+
+        if (resp.ok) {
+          const data = await resp.json();
+
+          if (data.tree && Array.isArray(data.tree)) {
+            setTree(data.tree);
+            console.log(`✅ Árbol cargado: ${data.tree.length} nodos`);
+          } else {
+            // Fallback a localStorage si no hay en servidor
+            const localTree = storage.getItem('keywordTree');
+            if (localTree) {
+              try {
+                const parsed = JSON.parse(localTree);
+                setTree(parsed);
+                console.log('✅ Árbol cargado desde localStorage (fallback)');
+              } catch (e) {
+                console.warn('⚠️ Error parseando localStorage:', e);
+              }
+            }
+          }
+
+          if (data.keywords && Array.isArray(data.keywords)) {
+            setKeywords(data.keywords);
+            console.log(`✅ Keywords cargadas: ${data.keywords.length} keywords`);
+          }
+        } else {
+          console.warn('⚠️ No se pudo cargar estado del servidor, usando localStorage');
+          // Fallback a localStorage
+          const localTree = storage.getItem('keywordTree');
+          if (localTree) {
+            try {
+              const parsed = JSON.parse(localTree);
+              setTree(parsed);
+            } catch (e) {
+              console.warn('Error parseando localStorage:', e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error cargando estado:', error);
+        // Fallback a localStorage en caso de error
+        const localTree = storage.getItem('keywordTree');
+        if (localTree) {
+          try {
+            const parsed = JSON.parse(localTree);
+            setTree(parsed);
+          } catch (e) {
+            console.warn('Error parseando localStorage:', e);
+          }
+        }
+      } finally {
+        setStateLoaded(true);
+      }
+    };
+
+    loadState();
+  }, []);
+
+  // Guardar threshold en localStorage
+  useEffect(() => {
+    if (stateLoaded) {
+      storage.setItem('threshold', String(threshold));
+    }
+  }, [threshold, stateLoaded]);
+
+  // Guardar estado en servidor cuando cambia el árbol
+  useEffect(() => {
+    if (!stateLoaded) return; // No guardar hasta que se haya cargado el estado inicial
+
+    const saveState = async () => {
+      try {
+        // Guardar también en localStorage como backup
+        storage.setItem('keywordTree', JSON.stringify(tree));
+
+        // Guardar en servidor
+        const resp = await fetch(`${serverBase}/api/save-state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords, tree })
+        });
+
+        if (resp.ok) {
+          console.log('💾 Estado guardado en servidor');
+        } else {
+          console.warn('⚠️ Error guardando en servidor, pero localStorage funciona');
+        }
+      } catch (error) {
+        console.error('❌ Error guardando estado:', error);
+        // localStorage ya se guardó arriba como backup
+      }
+    };
+
+    // Debounce para no saturar el servidor
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [tree, keywords, stateLoaded]);
+
   useEffect(()=>{ if(success){ const t = setTimeout(()=>setSuccess(''), 3000); return ()=>clearTimeout(t); } },[success]);
 
   const onCSV = (e)=>{
@@ -224,10 +336,6 @@ function App(){
     };
     reader.readAsText(f);
   };
-
-  const serverBase = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') 
-    ? 'http://localhost:3000' 
-    : '';
 
   const getEmbeddingsBatch = async (texts) => {
     const resp = await fetch(`${serverBase}/api/embeddings`, {
@@ -258,7 +366,7 @@ function App(){
 
   const sortGroupChildren = useCallback((nodes) => {
     volumeCacheRef.current.clear();
-    
+
     const sortedNodes = [...nodes].sort((a, b) => {
       const aIsGroup = !!a?.isGroup;
       const bIsGroup = !!b?.isGroup;
@@ -271,7 +379,15 @@ function App(){
       return labelA.localeCompare(labelB);
     }).map(n => {
       if (n.isGroup && n.children) {
-        return { ...n, children: sortGroupChildren(n.children) };
+        const childrenCount = n.children.length;
+        // Colapsar automáticamente si tiene más de 10 items (keywords + subgrupos)
+        const shouldCollapse = childrenCount > 10;
+
+        return {
+          ...n,
+          collapsed: shouldCollapse,
+          children: sortGroupChildren(n.children)
+        };
       }
       return n;
     });
@@ -288,11 +404,16 @@ function App(){
     setError('');
 
     try {
+      console.log(`\n🚀 Iniciando agrupación de ${keywords.length} keywords...`);
+
+      setProgressInfo({ show: true, current: 1, total: 4, message: 'Generando embeddings' });
       const texts = keywords.map(k => k.keyword);
       const embeddings = await getEmbeddingsBatch(texts);
       const withEmbeds = keywords.map((kw, i) => ({ ...kw, embedding: embeddings[i] }));
+      console.log(`✓ ${embeddings.length} embeddings generados`);
 
       // 1. Calcular matriz de similitud completa
+      setProgressInfo({ show: true, current: 2, total: 4, message: 'Calculando similitudes' });
       const similarities = [];
       for (let i = 0; i < withEmbeds.length; i++) {
         similarities[i] = [];
@@ -312,6 +433,8 @@ function App(){
       degrees.sort((a, b) => b.degree - a.degree);
 
       // 4. Aplicar algoritmo greedy-clique con orden por centralidad
+      setProgressInfo({ show: true, current: 3, total: 4, message: 'Aplicando algoritmo de agrupación' });
+      console.log(`✓ Aplicando algoritmo greedy-clique...`);
       const groups = [];
       const used = new Set();
 
@@ -352,12 +475,16 @@ function App(){
         });
       }
 
+      setProgressInfo({ show: true, current: 4, total: 4, message: 'Finalizando agrupación' });
       const sortedGroups = sortGroupChildren(groups);
       setTree(sortedGroups);
+      console.log(`✅ Agrupación completada: ${groups.length} grupos creados`);
       setSuccess(`Agrupación completada: ${groups.length} grupos creados`);
     } catch (err) {
+      console.error('❌ Error en autoGroup:', err);
       setError('Error al agrupar: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -383,11 +510,18 @@ function App(){
 
       console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches de ${batchSize}...`);
 
+      // Contar keywords totales al inicio
+      const initialKeywordCount = onlyGroups.reduce((count, g) => {
+        return count + (g.children || []).filter(c => !c.isGroup).length;
+      }, 0);
+      console.log(`📊 Total keywords al inicio: ${initialKeywordCount}`);
+
       let allKeywordsToClassify = [];
       let updatedTree = [...tree];
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
+        setProgressInfo({ show: true, current: i + 1, total: batches.length, message: 'Limpiando grupos' });
         setSuccess(`Limpiando batch ${i + 1}/${batches.length}...`);
 
         const batchData = batch.map(group => ({
@@ -429,11 +563,27 @@ function App(){
             if (groupIdx === -1) return;
 
             // Mantener solo las keywords válidas
-            const newChildren = (updatedTree[groupIdx].children || []).filter(child => {
+            const originalChildren = updatedTree[groupIdx].children || [];
+            const originalKeywordsCount = originalChildren.filter(c => !c.isGroup).length;
+
+            const newChildren = originalChildren.filter(child => {
               if (child.isGroup) return true;
               const kwText = child.keyword || child.name;
               return cleaned.keepKeywords.includes(kwText);
             });
+
+            const keptKeywordsCount = newChildren.filter(c => !c.isGroup).length;
+            const removedCount = originalKeywordsCount - keptKeywordsCount;
+
+            console.log(`   📊 Grupo "${group.name}": ${keptKeywordsCount} mantenidas, ${removedCount} removidas`);
+
+            if (removedCount > 0) {
+              // Log de keywords removidas para depuración
+              const removedKeywords = originalChildren
+                .filter(c => !c.isGroup && !newChildren.includes(c))
+                .map(c => c.keyword || c.name);
+              console.log(`      → Keywords removidas:`, removedKeywords.slice(0, 5).join(', ') + (removedKeywords.length > 5 ? '...' : ''));
+            }
 
             // Calcular el nuevo título usando la keyword de mayor volumen
             const keywordsOnly = newChildren.filter(c => !c.isGroup);
@@ -505,11 +655,29 @@ function App(){
       }
 
       const sortedTree = sortGroupChildren(updatedTree);
+
+      // Contar keywords totales al final
+      const finalKeywordCount = sortedTree.reduce((count, n) => {
+        if (!n.isGroup) return count;
+        return count + (n.children || []).filter(c => !c.isGroup).length;
+      }, 0);
+
+      console.log(`📊 Total keywords al final: ${finalKeywordCount}`);
+      console.log(`📊 Keywords movidas a LLM-POR-CLASIFICAR: ${allKeywordsToClassify.length}`);
+
+      if (finalKeywordCount !== initialKeywordCount) {
+        console.warn(`⚠️ ALERTA: Se perdieron ${initialKeywordCount - finalKeywordCount} keywords!`);
+        console.warn(`   Inicial: ${initialKeywordCount}, Final: ${finalKeywordCount}`);
+      } else {
+        console.log(`✅ No se perdieron keywords`);
+      }
+
       setTree(sortedTree);
       setSuccess(`Limpieza completada. ${allKeywordsToClassify.length} keywords movidas a LLM-POR-CLASIFICAR`);
     } catch (err) {
       setError('Error al limpiar grupos: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -558,6 +726,7 @@ function App(){
         const batchEnd = Math.min(batchStart + BATCH_SIZE, keywordsToClassify.length);
         const currentBatch = keywordsToClassify.slice(batchStart, batchEnd);
 
+        setProgressInfo({ show: true, current: batchIdx + 1, total: totalBatches, message: 'Clasificando keywords' });
         setSuccess(`Clasificando batch ${batchIdx + 1}/${totalBatches} (${currentBatch.length} keywords)...`);
         console.log(`\n🎯 Procesando batch ${batchIdx + 1}/${totalBatches}: ${currentBatch.length} keywords`);
 
@@ -627,24 +796,30 @@ function App(){
         }
 
         // 2.2 Llamar al LLM con el batch
-        const resp = await fetch(`${serverBase}/api/classify-keywords-batch`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keywordsBatch })
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutos timeout
 
-        if (!resp.ok) {
-          console.warn(`⚠️ Error clasificando batch ${batchIdx + 1}, saltando...`);
-          continue;
-        }
+        try {
+          const resp = await fetch(`${serverBase}/api/classify-keywords-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keywordsBatch }),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
 
-        const result = await resp.json();
-        const classifications = result.classifications || [];
+          if (!resp.ok) {
+            console.warn(`⚠️ Error clasificando batch ${batchIdx + 1}, saltando...`);
+            continue;
+          }
 
-        console.log(`   ✅ Recibidas ${classifications.length} clasificaciones del LLM`);
+          const result = await resp.json();
+          const classifications = result.classifications || [];
 
-        // 2.3 Aplicar clasificaciones
-        for (const classification of classifications) {
+          console.log(`   ✅ Recibidas ${classifications.length} clasificaciones del LLM`);
+
+          // 2.3 Aplicar clasificaciones
+          for (const classification of classifications) {
           const batchItem = keywordsBatch[classification.batchIndex];
           if (!batchItem) continue;
 
@@ -695,7 +870,17 @@ function App(){
             classifiedCount++;
 
             console.log(`      ✨ Nuevo grupo creado: "${classification.suggestedGroupName}"`);
+            }
           }
+
+        } catch (fetchErr) {
+          clearTimeout(timeoutId);
+          if (fetchErr.name === 'AbortError') {
+            console.warn(`⏱️ Timeout en batch ${batchIdx + 1}, continuando...`);
+          } else {
+            console.warn(`⚠️ Error en batch ${batchIdx + 1}: ${fetchErr.message}`);
+          }
+          continue;
         }
 
         // Pequeña pausa entre batches
@@ -729,6 +914,7 @@ function App(){
     } catch (err) {
       setError('Error al clasificar keywords: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -905,6 +1091,7 @@ function App(){
         const batchEnd = Math.min(batchStart + BATCH_SIZE, cliques.length);
         const batchCliques = cliques.slice(batchStart, batchEnd);
 
+        setProgressInfo({ show: true, current: batchIdx + 1, total: totalBatches, message: 'Evaluando cliques con IA' });
         setSuccess(`Evaluando batch ${batchIdx + 1}/${totalBatches} (${batchCliques.length} cliques)...`);
         console.log(`\n   Batch ${batchIdx + 1}/${totalBatches}: ${batchCliques.length} cliques`);
 
@@ -1038,11 +1225,12 @@ function App(){
       console.error('❌ Error en mergeSimilarGroups:', err);
       setError('Error al fusionar grupos: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
 
-  // FUNCIÓN 3: Generar jerarquías padre-hijo
+  // FUNCIÓN 5: Generar jerarquías padre-hijo
   const generateHierarchies = async () => {
     const onlyGroups = tree.filter(node => node.isGroup);
 
@@ -1055,6 +1243,7 @@ function App(){
     setError('');
 
     try {
+      setProgressInfo({ show: true, current: 1, total: 3, message: 'Analizando jerarquías' });
       setSuccess('Analizando jerarquías...');
 
       const groupsData = onlyGroups.map(group => ({
@@ -1066,6 +1255,7 @@ function App(){
           .map(child => child.keyword || child.name)
       }));
 
+      setProgressInfo({ show: true, current: 2, total: 3, message: 'Consultando IA' });
       const resp = await fetch(`${serverBase}/api/generate-hierarchies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1083,11 +1273,13 @@ function App(){
 
       if (!suggestions.hierarchies || suggestions.hierarchies.length === 0) {
         setSuccess('No se encontraron jerarquías válidas para crear.');
+        setProgressInfo({ show: false, current: 0, total: 0, message: '' });
         setLoading(false);
         return;
       }
 
       // Aplicar jerarquías
+      setProgressInfo({ show: true, current: 3, total: 3, message: 'Aplicando jerarquías' });
       let updatedTree = [...tree];
 
       suggestions.hierarchies.forEach(hierarchy => {
@@ -1124,6 +1316,7 @@ function App(){
     } catch (err) {
       setError('Error al generar jerarquías: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -1163,6 +1356,37 @@ function App(){
       .filter(n=> n.id!==id)
       .map(n=> n.children? ({...n, children: del(n.children)}) : n);
     setTree(prev=>del(prev));
+  };
+
+  const promoteToRoot = (id) => {
+    setTree(prevTree => {
+      // First, find the node to check if it exists
+      const node = findNode(id, prevTree);
+      if (!node) return prevTree;
+
+      // Check if already at root level
+      const isAtRoot = prevTree.some(n => n.id === id);
+      if (isAtRoot) {
+        console.log('⚠️ El nodo ya está en el nivel raíz');
+        return prevTree;
+      }
+
+      // Remove the node from its current location (nested in a parent)
+      const { arr: treeWithoutNode, removed } = removeNode(id, prevTree);
+
+      if (!removed) return prevTree;
+
+      console.log(`✅ Promoviendo "${removed.name || removed.keyword}" al nivel raíz`);
+
+      // Add the node to root level
+      const newTree = [...treeWithoutNode, removed];
+
+      // Clear volume cache to recalculate volumes
+      volumeCacheRef.current.clear();
+
+      // Sort to maintain order
+      return sortGroupChildren(newTree);
+    });
   };
 
   const isDescendant = (rootId, target)=>{
@@ -1275,7 +1499,48 @@ function App(){
     const a = document.createElement('a');
     a.href=url; a.download='keyword-tree.json'; a.click();
     URL.revokeObjectURL(url);
-    setSuccess('Archivo exportado correctamente');
+    setSuccess('Archivo JSON exportado correctamente');
+  };
+
+  const exportCSV = ()=>{
+    // Función recursiva para recorrer el árbol y construir filas CSV
+    const rows = [];
+    rows.push(['Path Jerárquico', 'Volumen']); // Header
+
+    const traverse = (nodes, parentPath = []) => {
+      for (const node of nodes) {
+        const currentPath = [...parentPath, node.isGroup ? node.name : node.keyword];
+
+        if (!node.isGroup) {
+          // Si es una keyword, agregar fila
+          const pathString = currentPath.join(' > ');
+          rows.push([pathString, node.volume || 0]);
+        } else if (node.children && node.children.length > 0) {
+          // Si es un grupo, seguir recorriendo sus hijos
+          traverse(node.children, currentPath);
+        }
+      }
+    };
+
+    traverse(tree);
+
+    // Convertir a CSV
+    const csvContent = rows.map(row => {
+      // Escapar comas y comillas en el path
+      const path = String(row[0]).replace(/"/g, '""');
+      const volume = row[1];
+      return `"${path}",${volume}`;
+    }).join('\n');
+
+    // Descargar
+    const blob = new Blob([csvContent], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url;
+    a.download='keyword-tree.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    setSuccess(`Archivo CSV exportado: ${rows.length - 1} keywords`);
   };
   
   const importJSON = (e)=>{
@@ -1303,6 +1568,49 @@ function App(){
     setError('');
     setSuccess('Todo ha sido eliminado');
   };
+
+  // Filtrar árbol según término de búsqueda
+  const filterTree = useCallback((nodes, term) => {
+    if (!term || term.trim() === '') return nodes;
+
+    const normalizedTerm = term.toLowerCase().trim();
+
+    const filterNode = (node) => {
+      const nodeName = (node.isGroup ? node.name : node.keyword || '').toLowerCase();
+      const matches = nodeName.includes(normalizedTerm);
+
+      if (!node.isGroup) {
+        // Si es keyword, solo mostrarla si coincide
+        return matches ? node : null;
+      }
+
+      // Si es grupo, filtrar sus hijos recursivamente
+      const filteredChildren = node.children
+        ? node.children.map(filterNode).filter(Boolean)
+        : [];
+
+      // Mostrar el grupo si:
+      // 1. Su nombre coincide, o
+      // 2. Tiene hijos que coinciden
+      if (matches || filteredChildren.length > 0) {
+        return {
+          ...node,
+          children: filteredChildren,
+          // Expandir automáticamente si tiene coincidencias en hijos
+          collapsed: filteredChildren.length > 0 ? false : node.collapsed
+        };
+      }
+
+      return null;
+    };
+
+    return nodes.map(filterNode).filter(Boolean);
+  }, []);
+
+  // Aplicar filtro al árbol
+  const filteredTree = useMemo(() => {
+    return filterTree(tree, searchTerm);
+  }, [tree, searchTerm, filterTree]);
 
   const toggleFlowNode = useCallback((nodeId) => {
     setExpandedNodes(prev => {
@@ -1342,17 +1650,17 @@ function App(){
               {keywords.length>0 && (
                 <>
                   <div className="flex items-center gap-3 glass px-4 py-2 rounded-lg text-white">
-                    <span className="text-sm font-medium">Threshold</span>
+                    <span className="text-sm font-medium bg-gray-900 text-white px-3 py-1 rounded shadow-md">Threshold:</span>
                     <input type="range" min="0.5" max="1.0" step="0.05"
                            value={threshold}
                            onChange={(e)=>setThreshold(parseFloat(e.target.value))}
                            className="w-24"/>
-                    <span className="text-sm font-bold bg-white/20 px-2 py-1 rounded">{threshold.toFixed(2)}</span>
+                    <span className="text-sm font-bold bg-gray-900 text-white px-3 py-1 rounded shadow-md">{threshold.toFixed(2)}</span>
                   </div>
 
                   <button onClick={autoGroup} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg">
-                    {loading? '⏳ Agrupando...':'✨ Crear Agrupación'}
+                    {loading? '⏳ Agrupando...':'✨ 1. Crear Agrupación'}
                   </button>
                 </>
               )}
@@ -1362,27 +1670,25 @@ function App(){
                   <button onClick={cleanGroups} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
                           data-tooltip="Limpia grupos y mueve keywords huérfanas a LLM-POR-CLASIFICAR">
-                    {loading? '🧹 Limpiando...':'🧹 1. Limpiar Grupos'}
+                    {loading? '🧹 Limpiando...':'🧹 2. Limpiar Grupos'}
                   </button>
 
-                  {tree.find(n => n.name === 'LLM-POR-CLASIFICAR' && n.children?.length > 0) && (
-                    <button onClick={classifyKeywords} disabled={loading}
-                            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
-                            data-tooltip="Clasifica keywords desde LLM-POR-CLASIFICAR usando embeddings + LLM">
-                      {loading? '🎯 Clasificando...':'🎯 2. Clasificar Keywords'}
-                    </button>
-                  )}
+                  <button onClick={classifyKeywords} disabled={loading}
+                          className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                          data-tooltip="Clasifica keywords desde LLM-POR-CLASIFICAR usando embeddings + LLM">
+                    {loading? '🎯 Clasificando...':'🎯 3. Clasificar Keywords'}
+                  </button>
 
                   <button onClick={() => mergeSimilarGroups(0.7)} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-lg hover:from-orange-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
                           data-tooltip="Detecta y fusiona grupos similares usando cliques y LLM (threshold 0.7 - más estricto)">
-                    {loading? '🔄 Fusionando...':'🔄 2.5 Fusionar Grupos'}
+                    {loading? '🔄 Fusionando...':'🔄 4. Fusionar Grupos'}
                   </button>
 
                   <button onClick={generateHierarchies} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
                           data-tooltip="Genera conexiones padre-hijo entre grupos">
-                    {loading? '🌳 Generando...':'🌳 3. Generar Jerarquías'}
+                    {loading? '🌳 Generando...':'🌳 5. Generar Jerarquías'}
                   </button>
                 </>
               )}
@@ -1393,11 +1699,21 @@ function App(){
                 <IPlus size={18}/> Grupo
               </button>
 
-              <button onClick={exportJSON} disabled={!tree.length}
-                      className="p-2 bg-white/10 text-white rounded-lg hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all tooltip"
-                      data-tooltip="Exportar JSON">
-                <IDownload size={20}/>
-              </button>
+              <div className="flex gap-2">
+                <button onClick={exportJSON} disabled={!tree.length}
+                        className="px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all tooltip flex items-center gap-2"
+                        data-tooltip="Exportar JSON">
+                  <IDownload size={18}/>
+                  <span className="text-xs font-medium">JSON</span>
+                </button>
+
+                <button onClick={exportCSV} disabled={!tree.length}
+                        className="px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all tooltip flex items-center gap-2"
+                        data-tooltip="Exportar CSV con paths jerárquicos">
+                  <IDownload size={18}/>
+                  <span className="text-xs font-medium">CSV</span>
+                </button>
+              </div>
 
               <label className="p-2 bg-white/10 text-white rounded-lg cursor-pointer hover:bg-white/20 transition-all tooltip"
                      data-tooltip="Importar JSON">
@@ -1420,21 +1736,46 @@ function App(){
           </div>
 
           {tree.length > 0 && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveView('tree')}
-                className={`tab-button flex items-center gap-2 ${activeView === 'tree' ? 'active' : ''}`}
-              >
-                <IList size={18}/>
-                Vista de Árbol
-              </button>
-              <button
-                onClick={() => setActiveView('flow')}
-                className={`tab-button flex items-center gap-2 ${activeView === 'flow' ? 'active' : ''}`}
-              >
-                <INetwork size={18}/>
-                Vista de Flujo
-              </button>
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setActiveView('tree')}
+                  className={`tab-button flex items-center gap-2 ${activeView === 'tree' ? 'active' : ''}`}
+                >
+                  <IList size={18}/>
+                  Vista de Árbol
+                </button>
+                <button
+                  onClick={() => setActiveView('flow')}
+                  className={`tab-button flex items-center gap-2 ${activeView === 'flow' ? 'active' : ''}`}
+                >
+                  <INetwork size={18}/>
+                  Vista de Flujo
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar keywords o grupos..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-2 pl-10 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition-all"
+                  >
+                    <IX size={16}/>
+                  </button>
+                )}
+                {searchTerm && (
+                  <div className="mt-2 text-xs text-white/70">
+                    Mostrando {filteredTree.length} de {tree.length} grupos
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1458,6 +1799,26 @@ function App(){
         </div>
       )}
 
+      {progressInfo.show && (
+        <div className="max-w-7xl mx-auto mt-4 px-6 animate-fade-in">
+          <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-lg shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-blue-800 font-medium">{progressInfo.message}</span>
+              <span className="text-blue-600 text-sm font-bold">{progressInfo.current} / {progressInfo.total}</span>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-300 ease-out"
+                style={{ width: `${(progressInfo.current / progressInfo.total) * 100}%` }}
+              />
+            </div>
+            <div className="mt-1 text-xs text-blue-600 text-right">
+              {Math.round((progressInfo.current / progressInfo.total) * 100)}%
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto p-6">
         {tree.length===0 ? (
           <div className="glass rounded-2xl p-12 text-center shadow-2xl animate-fade-in">
@@ -1472,7 +1833,7 @@ function App(){
           <>
             {activeView === 'tree' && window.TreeView && (
               <window.TreeView
-                tree={tree}
+                tree={filteredTree}
                 dragging={dragging}
                 dragOver={dragOver}
                 editingId={editingId}
@@ -1486,17 +1847,19 @@ function App(){
                 toggleCollapse={toggleCollapse}
                 renameNode={renameNode}
                 deleteNode={deleteNode}
+                promoteToRoot={promoteToRoot}
                 onDrop={onDrop}
               />
             )}
 
             {activeView === 'flow' && window.FlowView && (
               <window.FlowView
-                tree={tree}
+                tree={filteredTree}
                 expandedNodes={expandedNodes}
                 toggleFlowNode={toggleFlowNode}
                 renameNode={renameNode}
                 deleteNode={deleteNode}
+                promoteToRoot={promoteToRoot}
                 setKeywordModal={setKeywordModal}
                 onMoveNode={(sourceId, targetId) => {
                   // Implementar lógica para mover nodos en el diagrama de flujo

@@ -705,17 +705,57 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const responseText = message.content[0].text;
     let hierarchySuggestions;
 
+    // Estrategia multi-nivel para parsear JSON robusto (igual que en merge-groups)
+    let parseStrategy = '';
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      hierarchySuggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
-    } catch (parseError) {
-      return res.status(500).json({
-        error: 'Error al parsear respuesta del modelo',
-        details: parseError.message,
-        rawResponse: responseText.slice(0, 500)
-      });
+      // Intento 1: Parsear directo (más común cuando funciona bien)
+      hierarchySuggestions = JSON.parse(responseText);
+      parseStrategy = 'directo';
+    } catch (e1) {
+      try {
+        // Intento 2: Remover markdown code blocks (```json ... ```)
+        let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+        hierarchySuggestions = JSON.parse(jsonMatch[0]);
+        parseStrategy = 'sin-markdown';
+      } catch (e2) {
+        try {
+          // Intento 3: Reparar JSON truncado (cerrar arrays/objetos)
+          let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+          const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+
+          let jsonStr = jsonMatch[0];
+          // Remover comas finales sueltas
+          jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+          // Si el array "hierarchies" está abierto pero no cerrado, cerrarlo
+          if (jsonStr.includes('"hierarchies"') && !jsonStr.match(/\]\s*\}/)) {
+            jsonStr = jsonStr.trim().replace(/,?\s*$/, '') + ']}';
+          }
+          hierarchySuggestions = JSON.parse(jsonStr);
+          parseStrategy = 'reparación';
+        } catch (e3) {
+          // Intento 4: Fallar con información útil
+          console.error('❌ Error parseando respuesta después de 3 intentos:');
+          console.error('  - Intento 1 (directo):', e1.message);
+          console.error('  - Intento 2 (sin-markdown):', e2.message);
+          console.error('  - Intento 3 (reparación):', e3.message);
+          console.error('📄 Últimos 500 caracteres de respuesta:', responseText.slice(-500));
+          console.error('📏 Longitud total de respuesta:', responseText.length);
+
+          return res.status(500).json({
+            error: 'Error al parsear respuesta del modelo',
+            details: 'JSON malformado o incompleto después de múltiples intentos',
+            responseLength: responseText.length,
+            responseTail: responseText.slice(-500),
+            attempts: [e1.message, e2.message, e3.message]
+          });
+        }
+      }
     }
 
+    console.log(`✅ Respuesta parseada exitosamente (estrategia: ${parseStrategy})`);
     console.log('✅ Jerarquías generadas:', hierarchySuggestions.hierarchies?.length || 0);
 
     res.json({
@@ -805,33 +845,31 @@ ${contextSection}
 CONTEXTO:
 - Un "clique" es un conjunto de grupos donde TODOS tienen alta similitud semántica entre sí
 - Debes decidir si fusionar cada clique en un solo grupo o mantenerlos separados
-- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda Y la MISMA URL
-- SÉ EXTREMADAMENTE ESTRICTO: La fusión es PERMANENTE y no se puede deshacer fácilmente
+- IMPORTANTE: Solo fusiona si representan la MISMA intención de búsqueda
+- La fusión ayuda a consolidar contenido y evitar canibalización de URLs
 
-CRITERIOS ESTRICTOS PARA FUSIONAR:
-✅ SÍ fusionar si TODOS se cumplen:
-1. Buscan EXACTAMENTE el mismo producto/servicio específico
-2. Son sinónimos o variaciones del MISMO término
-3. NO hay diferencias de género (hombre vs mujer)
-4. NO mezclan intenciones (transaccional vs informativa)
-5. Podrían responderse con la MISMA landing page
-6. Ejemplos válidos:
-   - ["Dupe Good Girl", "Clon Good Girl", "Réplica Good Girl"] ✅
-   - ["Dupe Sauvage", "Copia Sauvage Dior", "Imitación Sauvage"] ✅
+CRITERIOS PARA FUSIONAR:
+✅ SÍ fusionar si:
+1. Representan la MISMA intención de búsqueda principal
+2. Podrían responderse con la MISMA landing page
+3. Son sinónimos, variaciones o reformulaciones del mismo concepto
+4. Ejemplos válidos:
+   - ["ofertas perfumes", "perfumes oferta", "perfume baratos"] ✅ → todos buscan perfumes en promoción
+   - ["Dupe Good Girl", "Clon Good Girl", "Réplica Good Girl"] ✅ → mismo producto
+   - ["perfumes hombre dulces", "perfumes dulces para hombre"] ✅ → misma búsqueda
+   - ["mejores perfumes amaderados", "top perfumes amaderados"] ✅ → misma intención informativa
 
-❌ NO fusionar si CUALQUIERA se cumple:
-1. Buscan productos DIFERENTES (aunque sean del mismo tipo)
+❌ NO fusionar si:
+1. Buscan productos ESPECÍFICOS diferentes
    - ["Dupe Good Girl", "Dupe 212 VIP"] ❌ → productos distintos
-2. Diferentes géneros mezclados
+2. Géneros diferentes mezclados
    - ["Perfumes hombre baratos", "Ofertas perfumes mujer"] ❌ → géneros distintos
-3. Intenciones diferentes
-   - ["Perfume hombre oferta", "Perfumes amaderados hombre"] ❌ → transaccional vs informativa
-4. Categorías vs productos específicos
-   - ["Perfumes Carolina Herrera", "Dupe Good Girl"] ❌ → categoría vs producto
-5. Características diferentes
-   - ["Perfumes dulces hombre", "Perfumes cítricos hombre"] ❌ → características opuestas
+3. Categorías diferentes
+   - ["Perfumes Carolina Herrera", "Perfumes Dior"] ❌ → marcas distintas
+4. Características OPUESTAS o MUY diferentes
+   - ["Perfumes dulces", "Perfumes cítricos"] ❌ → características opuestas
 
-REGLA DE ORO: Ante la duda, NO FUSIONAR. Es mejor tener grupos separados que mezclar incorrectamente.
+REGLA: Si los grupos representan LA MISMA búsqueda con palabras diferentes, FUSIONA. Si son búsquedas relacionadas pero distintas, NO FUSIONAR.
 
 CLIQUES A EVALUAR:
 ${JSON.stringify(cliquesData, null, 2)}
@@ -844,8 +882,7 @@ FORMATO DE RESPUESTA:
     {
       "cliqueIndex": 0,
       "shouldMerge": true,
-      "finalName": "Dupe Good Girl Carolina Herrera",
-      "reason": "Los 3 grupos buscan dupes del mismo perfume",
+      "reason": "Los 3 grupos buscan perfumes en promoción/baratos, misma intención comercial",
       "confidence": 0.95
     },
     {
@@ -857,18 +894,19 @@ FORMATO DE RESPUESTA:
   ]
 }
 
-REGLAS:
+REGLAS CRÍTICAS:
 - Devuelve una decisión por cada clique
-- Si shouldMerge es true, incluye finalName (nombre del grupo fusionado)
-- El finalName debe ser el más representativo o combinar los nombres existentes
+- NO inventes ni modifiques nombres de grupos
+- NO incluyas el campo "finalName" - el sistema usará automáticamente el nombre del grupo con mayor volumen
 - Confidence debe estar entre 0 y 1
+- Solo decide si fusionar (true) o no (false) con la razón
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'claude-haiku-4-5',
         max_tokens: 16384, // Aumentado para manejar muchos cliques
         temperature: 0.1,
         messages: [{ role: 'user', content: prompt }]
@@ -938,9 +976,18 @@ Responde AHORA con el JSON (sin texto adicional):`;
       .filter(d => d.shouldMerge)
       .map(d => {
         const cliqueIndices = cliques[d.cliqueIndex];
+
+        // Encontrar el grupo con mayor volumen del clique
+        const cliqueGroups = cliqueIndices.map(idx => groups[idx]);
+        const largestGroup = cliqueGroups.reduce((max, g) => {
+          const maxVol = max.volume || 0;
+          const gVol = g.volume || 0;
+          return gVol > maxVol ? g : max;
+        }, cliqueGroups[0]);
+
         return {
           groupIndices: cliqueIndices,
-          suggestedName: d.finalName,
+          suggestedName: largestGroup.name, // Usar el nombre del grupo con mayor volumen
           reason: d.reason,
           confidence: d.confidence
         };
@@ -965,6 +1012,103 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const userMessage = formatUserError(error, 'fusión de grupos');
     res.status(500).json({
       error: userMessage,
+      details: error.message
+    });
+  }
+});
+
+// ENDPOINT 5: Guardar estado completo (keywords + tree)
+// Guarda keywords.json y tree-structure.json en el directorio data/
+app.post('/api/save-state', async (req, res) => {
+  try {
+    const { keywords, tree } = req.body;
+
+    if (!Array.isArray(keywords) && !Array.isArray(tree)) {
+      return res.status(400).json({
+        error: 'Se requiere al menos keywords o tree'
+      });
+    }
+
+    const dataDir = path.join(__dirname, 'data');
+
+    // Asegurar que el directorio existe
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    let saved = [];
+
+    // Guardar keywords.json si se proporcionó
+    if (Array.isArray(keywords)) {
+      const keywordsPath = path.join(dataDir, 'keywords.json');
+      fs.writeFileSync(keywordsPath, JSON.stringify(keywords, null, 2), 'utf8');
+      saved.push('keywords.json');
+      console.log(`💾 Guardado keywords.json: ${keywords.length} keywords`);
+    }
+
+    // Guardar tree-structure.json si se proporcionó
+    if (Array.isArray(tree)) {
+      const treePath = path.join(dataDir, 'tree-structure.json');
+      fs.writeFileSync(treePath, JSON.stringify(tree, null, 2), 'utf8');
+      saved.push('tree-structure.json');
+      console.log(`💾 Guardado tree-structure.json: ${tree.length} nodos raíz`);
+    }
+
+    res.json({
+      success: true,
+      saved,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error en /api/save-state:', error);
+    res.status(500).json({
+      error: 'Error al guardar estado',
+      details: error.message
+    });
+  }
+});
+
+// ENDPOINT 6: Cargar estado completo (keywords + tree)
+// Carga keywords.json y tree-structure.json desde el directorio data/
+app.get('/api/load-state', async (req, res) => {
+  try {
+    const dataDir = path.join(__dirname, 'data');
+    const keywordsPath = path.join(dataDir, 'keywords.json');
+    const treePath = path.join(dataDir, 'tree-structure.json');
+
+    const result = {
+      keywords: null,
+      tree: null,
+      loaded: []
+    };
+
+    // Cargar keywords.json si existe
+    if (fs.existsSync(keywordsPath)) {
+      const keywordsData = fs.readFileSync(keywordsPath, 'utf8');
+      result.keywords = JSON.parse(keywordsData);
+      result.loaded.push('keywords.json');
+      console.log(`📂 Cargado keywords.json: ${result.keywords?.length || 0} keywords`);
+    }
+
+    // Cargar tree-structure.json si existe
+    if (fs.existsSync(treePath)) {
+      const treeData = fs.readFileSync(treePath, 'utf8');
+      result.tree = JSON.parse(treeData);
+      result.loaded.push('tree-structure.json');
+      console.log(`📂 Cargado tree-structure.json: ${result.tree?.length || 0} nodos raíz`);
+    }
+
+    res.json({
+      success: true,
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error en /api/load-state:', error);
+    res.status(500).json({
+      error: 'Error al cargar estado',
       details: error.message
     });
   }
