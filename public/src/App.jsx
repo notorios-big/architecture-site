@@ -192,6 +192,7 @@ function App(){
   const [keywordModal, setKeywordModal] = useState(null);
   const [stateLoaded, setStateLoaded] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [progressInfo, setProgressInfo] = useState({ show: false, current: 0, total: 0, message: '' });
 
   // Configuración del servidor
   const serverBase = (location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -498,11 +499,18 @@ function App(){
 
       console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches de ${batchSize}...`);
 
+      // Contar keywords totales al inicio
+      const initialKeywordCount = onlyGroups.reduce((count, g) => {
+        return count + (g.children || []).filter(c => !c.isGroup).length;
+      }, 0);
+      console.log(`📊 Total keywords al inicio: ${initialKeywordCount}`);
+
       let allKeywordsToClassify = [];
       let updatedTree = [...tree];
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
+        setProgressInfo({ show: true, current: i + 1, total: batches.length, message: 'Limpiando grupos' });
         setSuccess(`Limpiando batch ${i + 1}/${batches.length}...`);
 
         const batchData = batch.map(group => ({
@@ -544,11 +552,27 @@ function App(){
             if (groupIdx === -1) return;
 
             // Mantener solo las keywords válidas
-            const newChildren = (updatedTree[groupIdx].children || []).filter(child => {
+            const originalChildren = updatedTree[groupIdx].children || [];
+            const originalKeywordsCount = originalChildren.filter(c => !c.isGroup).length;
+
+            const newChildren = originalChildren.filter(child => {
               if (child.isGroup) return true;
               const kwText = child.keyword || child.name;
               return cleaned.keepKeywords.includes(kwText);
             });
+
+            const keptKeywordsCount = newChildren.filter(c => !c.isGroup).length;
+            const removedCount = originalKeywordsCount - keptKeywordsCount;
+
+            console.log(`   📊 Grupo "${group.name}": ${keptKeywordsCount} mantenidas, ${removedCount} removidas`);
+
+            if (removedCount > 0) {
+              // Log de keywords removidas para depuración
+              const removedKeywords = originalChildren
+                .filter(c => !c.isGroup && !newChildren.includes(c))
+                .map(c => c.keyword || c.name);
+              console.log(`      → Keywords removidas:`, removedKeywords.slice(0, 5).join(', ') + (removedKeywords.length > 5 ? '...' : ''));
+            }
 
             // Calcular el nuevo título usando la keyword de mayor volumen
             const keywordsOnly = newChildren.filter(c => !c.isGroup);
@@ -620,11 +644,29 @@ function App(){
       }
 
       const sortedTree = sortGroupChildren(updatedTree);
+
+      // Contar keywords totales al final
+      const finalKeywordCount = sortedTree.reduce((count, n) => {
+        if (!n.isGroup) return count;
+        return count + (n.children || []).filter(c => !c.isGroup).length;
+      }, 0);
+
+      console.log(`📊 Total keywords al final: ${finalKeywordCount}`);
+      console.log(`📊 Keywords movidas a LLM-POR-CLASIFICAR: ${allKeywordsToClassify.length}`);
+
+      if (finalKeywordCount !== initialKeywordCount) {
+        console.warn(`⚠️ ALERTA: Se perdieron ${initialKeywordCount - finalKeywordCount} keywords!`);
+        console.warn(`   Inicial: ${initialKeywordCount}, Final: ${finalKeywordCount}`);
+      } else {
+        console.log(`✅ No se perdieron keywords`);
+      }
+
       setTree(sortedTree);
       setSuccess(`Limpieza completada. ${allKeywordsToClassify.length} keywords movidas a LLM-POR-CLASIFICAR`);
     } catch (err) {
       setError('Error al limpiar grupos: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -673,6 +715,7 @@ function App(){
         const batchEnd = Math.min(batchStart + BATCH_SIZE, keywordsToClassify.length);
         const currentBatch = keywordsToClassify.slice(batchStart, batchEnd);
 
+        setProgressInfo({ show: true, current: batchIdx + 1, total: totalBatches, message: 'Clasificando keywords' });
         setSuccess(`Clasificando batch ${batchIdx + 1}/${totalBatches} (${currentBatch.length} keywords)...`);
         console.log(`\n🎯 Procesando batch ${batchIdx + 1}/${totalBatches}: ${currentBatch.length} keywords`);
 
@@ -742,24 +785,30 @@ function App(){
         }
 
         // 2.2 Llamar al LLM con el batch
-        const resp = await fetch(`${serverBase}/api/classify-keywords-batch`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keywordsBatch })
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutos timeout
 
-        if (!resp.ok) {
-          console.warn(`⚠️ Error clasificando batch ${batchIdx + 1}, saltando...`);
-          continue;
-        }
+        try {
+          const resp = await fetch(`${serverBase}/api/classify-keywords-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keywordsBatch }),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
 
-        const result = await resp.json();
-        const classifications = result.classifications || [];
+          if (!resp.ok) {
+            console.warn(`⚠️ Error clasificando batch ${batchIdx + 1}, saltando...`);
+            continue;
+          }
 
-        console.log(`   ✅ Recibidas ${classifications.length} clasificaciones del LLM`);
+          const result = await resp.json();
+          const classifications = result.classifications || [];
 
-        // 2.3 Aplicar clasificaciones
-        for (const classification of classifications) {
+          console.log(`   ✅ Recibidas ${classifications.length} clasificaciones del LLM`);
+
+          // 2.3 Aplicar clasificaciones
+          for (const classification of classifications) {
           const batchItem = keywordsBatch[classification.batchIndex];
           if (!batchItem) continue;
 
@@ -810,7 +859,17 @@ function App(){
             classifiedCount++;
 
             console.log(`      ✨ Nuevo grupo creado: "${classification.suggestedGroupName}"`);
+            }
           }
+
+        } catch (fetchErr) {
+          clearTimeout(timeoutId);
+          if (fetchErr.name === 'AbortError') {
+            console.warn(`⏱️ Timeout en batch ${batchIdx + 1}, continuando...`);
+          } else {
+            console.warn(`⚠️ Error en batch ${batchIdx + 1}: ${fetchErr.message}`);
+          }
+          continue;
         }
 
         // Pequeña pausa entre batches
@@ -844,6 +903,7 @@ function App(){
     } catch (err) {
       setError('Error al clasificar keywords: ' + (err?.message || String(err)));
     } finally {
+      setProgressInfo({ show: false, current: 0, total: 0, message: '' });
       setLoading(false);
     }
   };
@@ -1546,7 +1606,7 @@ function App(){
                            value={threshold}
                            onChange={(e)=>setThreshold(parseFloat(e.target.value))}
                            className="w-24"/>
-                    <span className="text-sm font-bold bg-white/20 px-2 py-1 rounded">{threshold.toFixed(2)}</span>
+                    <span className="text-sm font-bold bg-gray-900 text-white px-3 py-1 rounded shadow-md">{threshold.toFixed(2)}</span>
                   </div>
 
                   <button onClick={autoGroup} disabled={loading}
@@ -1686,6 +1746,26 @@ function App(){
           <div className="p-4 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-lg shadow-lg flex items-center gap-3">
             <span className="text-2xl">✅</span>
             <span>{success}</span>
+          </div>
+        </div>
+      )}
+
+      {progressInfo.show && (
+        <div className="max-w-7xl mx-auto mt-4 px-6 animate-fade-in">
+          <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-lg shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-blue-800 font-medium">{progressInfo.message}</span>
+              <span className="text-blue-600 text-sm font-bold">{progressInfo.current} / {progressInfo.total}</span>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-300 ease-out"
+                style={{ width: `${(progressInfo.current / progressInfo.total) * 100}%` }}
+              />
+            </div>
+            <div className="mt-1 text-xs text-blue-600 text-right">
+              {Math.round((progressInfo.current / progressInfo.total) * 100)}%
+            </div>
           </div>
         </div>
       )}
