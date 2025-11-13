@@ -1340,6 +1340,37 @@ function App(){
     setTree(prev=>del(prev));
   };
 
+  const promoteToRoot = (id) => {
+    setTree(prevTree => {
+      // First, find the node to check if it exists
+      const node = findNode(id, prevTree);
+      if (!node) return prevTree;
+
+      // Check if already at root level
+      const isAtRoot = prevTree.some(n => n.id === id);
+      if (isAtRoot) {
+        console.log('⚠️ El nodo ya está en el nivel raíz');
+        return prevTree;
+      }
+
+      // Remove the node from its current location (nested in a parent)
+      const { arr: treeWithoutNode, removed } = removeNode(id, prevTree);
+
+      if (!removed) return prevTree;
+
+      console.log(`✅ Promoviendo "${removed.name || removed.keyword}" al nivel raíz`);
+
+      // Add the node to root level
+      const newTree = [...treeWithoutNode, removed];
+
+      // Clear volume cache to recalculate volumes
+      volumeCacheRef.current.clear();
+
+      // Sort to maintain order
+      return sortGroupChildren(newTree);
+    });
+  };
+
   const isDescendant = (rootId, target)=>{
     if (!target?.children) return false;
     for(const ch of target.children){
@@ -1798,6 +1829,7 @@ function App(){
                 toggleCollapse={toggleCollapse}
                 renameNode={renameNode}
                 deleteNode={deleteNode}
+                promoteToRoot={promoteToRoot}
                 onDrop={onDrop}
               />
             )}
@@ -1809,6 +1841,7 @@ function App(){
                 toggleFlowNode={toggleFlowNode}
                 renameNode={renameNode}
                 deleteNode={deleteNode}
+                promoteToRoot={promoteToRoot}
                 setKeywordModal={setKeywordModal}
                 onMoveNode={(sourceId, targetId) => {
                   // Implementar lógica para mover nodos en el diagrama de flujo
