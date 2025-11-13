@@ -1157,69 +1157,7 @@ function App(){
     }
   };
 
-  // FUNCIÓN PIPELINE COMPLETO: Ejecutar todos los pasos secuencialmente
-  const runCompletePipeline = async () => {
-    if (!keywords.length) {
-      setError('Primero carga un CSV.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      console.log('\n════════════════════════════════════════════════════');
-      console.log('🚀 INICIANDO PIPELINE COMPLETO');
-      console.log('════════════════════════════════════════════════════\n');
-
-      // PASO 1: Agrupación automática
-      setSuccess('Paso 1/5: Agrupación automática...');
-      console.log('📍 PASO 1/5: Agrupación automática');
-      await autoGroup();
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Pausa para que se actualice el estado
-
-      // PASO 2: Limpieza de grupos
-      setSuccess('Paso 2/5: Limpieza de grupos...');
-      console.log('\n📍 PASO 2/5: Limpieza de grupos');
-      await cleanGroups();
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // PASO 3: Clasificación de keywords (si hay grupo LLM-POR-CLASIFICAR)
-      setSuccess('Paso 3/5: Clasificación de keywords...');
-      console.log('\n📍 PASO 3/5: Clasificación de keywords');
-      const toClassifyExists = tree.find(n => n.name === 'LLM-POR-CLASIFICAR' && n.children?.length > 0);
-      if (toClassifyExists) {
-        await classifyKeywords();
-      } else {
-        console.log('   ⊗ No hay keywords por clasificar, saltando paso');
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // PASO 4: Fusión de grupos similares
-      setSuccess('Paso 4/5: Fusión de grupos similares...');
-      console.log('\n📍 PASO 4/5: Fusión de grupos similares');
-      await mergeSimilarGroups(0.7);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // PASO 5: Generación de jerarquías
-      setSuccess('Paso 5/5: Generación de jerarquías...');
-      console.log('\n📍 PASO 5/5: Generación de jerarquías');
-      await generateHierarchies();
-
-      console.log('\n════════════════════════════════════════════════════');
-      console.log('✅ PIPELINE COMPLETO FINALIZADO');
-      console.log('════════════════════════════════════════════════════\n');
-
-      setSuccess('✅ Pipeline completo finalizado exitosamente');
-    } catch (err) {
-      console.error('❌ Error en pipeline completo:', err);
-      setError('Error en pipeline completo: ' + (err?.message || String(err)));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // FUNCIÓN 3: Generar jerarquías padre-hijo
+  // FUNCIÓN 5: Generar jerarquías padre-hijo
   const generateHierarchies = async () => {
     const onlyGroups = tree.filter(node => node.isGroup);
 
@@ -1613,13 +1551,7 @@ function App(){
 
                   <button onClick={autoGroup} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg">
-                    {loading? '⏳ Agrupando...':'✨ Crear Agrupación'}
-                  </button>
-
-                  <button onClick={runCompletePipeline} disabled={loading}
-                          className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
-                          data-tooltip="Ejecuta todos los pasos del pipeline automáticamente">
-                    {loading? '⏳ Procesando...':'🚀 Pipeline Completo'}
+                    {loading? '⏳ Agrupando...':'✨ 1. Crear Agrupación'}
                   </button>
                 </>
               )}
@@ -1629,27 +1561,25 @@ function App(){
                   <button onClick={cleanGroups} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
                           data-tooltip="Limpia grupos y mueve keywords huérfanas a LLM-POR-CLASIFICAR">
-                    {loading? '🧹 Limpiando...':'🧹 1. Limpiar Grupos'}
+                    {loading? '🧹 Limpiando...':'🧹 2. Limpiar Grupos'}
                   </button>
 
-                  {tree.find(n => n.name === 'LLM-POR-CLASIFICAR' && n.children?.length > 0) && (
-                    <button onClick={classifyKeywords} disabled={loading}
-                            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
-                            data-tooltip="Clasifica keywords desde LLM-POR-CLASIFICAR usando embeddings + LLM">
-                      {loading? '🎯 Clasificando...':'🎯 2. Clasificar Keywords'}
-                    </button>
-                  )}
+                  <button onClick={classifyKeywords} disabled={loading}
+                          className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
+                          data-tooltip="Clasifica keywords desde LLM-POR-CLASIFICAR usando embeddings + LLM">
+                    {loading? '🎯 Clasificando...':'🎯 3. Clasificar Keywords'}
+                  </button>
 
                   <button onClick={() => mergeSimilarGroups(0.7)} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-lg hover:from-orange-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
                           data-tooltip="Detecta y fusiona grupos similares usando cliques y LLM (threshold 0.7 - más estricto)">
-                    {loading? '🔄 Fusionando...':'🔄 2.5 Fusionar Grupos'}
+                    {loading? '🔄 Fusionando...':'🔄 4. Fusionar Grupos'}
                   </button>
 
                   <button onClick={generateHierarchies} disabled={loading}
                           className="px-4 py-2 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-lg hover:from-green-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium shadow-lg tooltip"
                           data-tooltip="Genera conexiones padre-hijo entre grupos">
-                    {loading? '🌳 Generando...':'🌳 3. Generar Jerarquías'}
+                    {loading? '🌳 Generando...':'🌳 5. Generar Jerarquías'}
                   </button>
                 </>
               )}

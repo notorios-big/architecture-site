@@ -113,29 +113,24 @@
 
 ---
 
-### 6. ✅ Botón "Pipeline Completo"
+### 6. ✅ Numeración Correcta de Botones del Pipeline
 
-**Problema:** No existía botón para ejecutar todos los pasos (Flujo de Usuario).
+**Problema:** Los botones del pipeline no tenían numeración clara.
 
 **Solución implementada:**
-- ✅ Función `runCompletePipeline()` que ejecuta secuencialmente:
-  1. Agrupación automática
-  2. Limpieza de grupos
-  3. Clasificación de keywords
-  4. Fusión de grupos similares
-  5. Generación de jerarquías
-- ✅ Indicador de progreso: "Paso X/5: ..."
-- ✅ Logging detallado en consola
-- ✅ Pausas de 1s entre pasos para actualizar estado
-- ✅ Botón destacado en la UI con tooltip
+- ✅ Botón "1. Crear Agrupación" (Paso 1: Greedy-Clique)
+- ✅ Botón "2. Limpiar Grupos" (Paso 2: Limpieza)
+- ✅ Botón "3. Clasificar Keywords" (Paso 3: Clasificación - siempre visible)
+- ✅ Botón "4. Fusionar Grupos" (Paso 4: Fusión)
+- ✅ Botón "5. Generar Jerarquías" (Paso 5: Jerarquías)
 
 **Archivo modificado:**
-- `public/src/App.jsx` (líneas 1160-1220, 1619-1623)
+- `public/src/App.jsx` (líneas 1552-1585)
 
 **Beneficios:**
-- Usuario puede ejecutar todo el pipeline con un solo clic
-- Progreso visible paso a paso
-- Ideal para usuarios nuevos
+- Flujo de trabajo claro para el usuario
+- Numeración secuencial que coincide con documentación
+- Botón de clasificación siempre visible (no condicionado)
 
 ---
 
@@ -148,7 +143,7 @@
 | Exportación CSV plano | 🟡 MEDIO | ✅ | `App.jsx` |
 | Búsqueda y filtrado | 🟡 MEDIO | ✅ | `App.jsx` |
 | Colapso automático | 🟢 BAJO | ✅ | `App.jsx` |
-| Botón Pipeline Completo | 🟢 BAJO | ✅ | `App.jsx` |
+| Numeración correcta de botones | 🟢 BAJO | ✅ | `App.jsx` |
 
 ---
 
@@ -160,7 +155,7 @@
 - ❌ Sin exportación CSV
 - ❌ Sin búsqueda/filtrado
 - ⚠️ Sin colapso automático
-- ⚠️ Sin pipeline completo
+- ⚠️ Numeración incorrecta de pasos
 
 ### Ahora: 100%
 - ✅ Persistencia en archivos JSON del servidor
@@ -168,7 +163,7 @@
 - ✅ Exportación CSV con paths jerárquicos
 - ✅ Búsqueda y filtrado en tiempo real
 - ✅ Colapso automático de grupos grandes
-- ✅ Botón Pipeline Completo
+- ✅ Numeración correcta de pasos (1-5)
 
 ---
 
