@@ -921,7 +921,7 @@ function App(){
 
   // FUNCIÓN 2.5: Fusionar grupos similares
   const mergeSimilarGroups = async (threshold = 0.6) => {
-    const onlyGroups = tree.filter(node => node.isGroup);
+    const onlyGroups = tree.filter(node => node.isGroup && node.name !== 'LLM-POR-CLASIFICAR');
 
     if (onlyGroups.length < 2) {
       setError('Se necesitan al menos 2 grupos para detectar fusiones.');
@@ -1232,7 +1232,7 @@ function App(){
 
   // FUNCIÓN 5: Generar jerarquías padre-hijo
   const generateHierarchies = async () => {
-    const onlyGroups = tree.filter(node => node.isGroup);
+    const onlyGroups = tree.filter(node => node.isGroup && node.name !== 'LLM-POR-CLASIFICAR');
 
     if (onlyGroups.length < 2) {
       setError('Se necesitan al menos 2 grupos para generar jerarquías.');
