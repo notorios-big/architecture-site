@@ -87,7 +87,6 @@ const TreeView = ({
 
     const isGroup = !!node.isGroup;
     const total = nodeVolume(node);
-    const isEditing = editingId === node.id;
     const isSelected = !isGroup && selectedNodes && selectedNodes.has(node.id);
     const isBeingDragged = dragging && dragging.id === node.id;
     const isMultiDrag = dragging && selectedNodes && selectedNodes.has(dragging.id) && selectedNodes.size > 1;
@@ -105,12 +104,8 @@ const TreeView = ({
       <div key={node.id} className="mb-3" style={{ marginLeft: depth ? '32px' : '0' }}>
         <div
           ref={cardRef}
-          draggable={!isEditing}
+          draggable={true}
           onDragStart={(e) => {
-            if (isEditing) {
-              e.preventDefault();
-              return;
-            }
             setDragging(node);
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', node.id);
@@ -165,58 +160,16 @@ const TreeView = ({
 
             {isGroup && <IFolderOpen size={20} className="text-indigo-600"/>}
 
-            {isEditing ? (
-              <div className="flex items-center gap-2 flex-1">
-                <input
-                  className="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={editingText}
-                  onChange={(e) => setEditingText(e.target.value)}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      renameNode(node.id, editingText);
-                      setEditingId(null);
-                    }
-                    if (e.key === 'Escape') {
-                      setEditingId(null);
-                    }
-                  }}
-                />
-                <button onClick={() => {
-                  renameNode(node.id, editingText);
-                  setEditingId(null);
-                }}
-                        className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all tooltip"
-                        data-tooltip="Guardar">
-                  <ICheck size={18}/>
-                </button>
-                <button onClick={() => setEditingId(null)}
-                        className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all tooltip"
-                        data-tooltip="Cancelar">
-                  <IX size={18}/>
-                </button>
-              </div>
-            ) : (
-              <>
-                <span className={`flex-1 ${isGroup ? 'font-semibold text-gray-800' : 'text-gray-700'}`}>
-                  {isGroup ? node.name : node.keyword}
-                  {isBeingDragged && isMultiDrag && (
-                    <span className="ml-2 px-2 py-0.5 bg-purple-600 text-white text-xs rounded-full">
-                      +{selectedNodes.size - 1}
-                    </span>
-                  )}
+            <span className={`flex-1 ${isGroup ? 'font-semibold text-gray-800' : 'text-gray-700'}`}>
+              {isGroup ? node.name : node.keyword}
+              {isBeingDragged && isMultiDrag && (
+                <span className="ml-2 px-2 py-0.5 bg-purple-600 text-white text-xs rounded-full">
+                  +{selectedNodes.size - 1}
                 </span>
-                {isGroup && (
-                  <button onClick={() => {
-                    setEditingId(node.id);
-                    setEditingText(node.name || '');
-                  }}
-                          className="p-2 hover:bg-white/50 rounded-lg transition-all tooltip"
-                          data-tooltip="Editar nombre">
-                    <IEdit size={18} className="text-indigo-600"/>
-                  </button>
-                )}
-                {isGroup && depth > 0 && promoteToRoot && (
+              )}
+            </span>
+
+            {isGroup && depth > 0 && promoteToRoot && (
                   <button onClick={() => promoteToRoot(node.id)}
                           className="p-2 hover:bg-green-100 rounded-lg transition-all tooltip"
                           data-tooltip="Promover a raíz">
@@ -225,8 +178,6 @@ const TreeView = ({
                     </svg>
                   </button>
                 )}
-              </>
-            )}
 
             <div className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full text-sm font-bold">
               {total.toLocaleString('es-CL')}

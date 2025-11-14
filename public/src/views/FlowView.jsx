@@ -44,42 +44,6 @@ const FlowView = ({
         const node = findNodeById(tree, nodeId);
         if (node) setKeywordModal(node);
       },
-      startEdit: (nodeId) => {
-        console.log('Start edit:', nodeId);
-        const input = document.getElementById(`edit-input-${nodeId}`);
-        const display = document.getElementById(`display-name-${nodeId}`);
-        const editBtn = document.getElementById(`edit-btn-${nodeId}`);
-        const saveBtn = document.getElementById(`save-btn-${nodeId}`);
-
-        if (input && display && editBtn && saveBtn) {
-          input.classList.remove('hidden');
-          display.classList.add('hidden');
-          editBtn.classList.add('hidden');
-          saveBtn.classList.remove('hidden');
-          input.focus();
-        }
-      },
-      saveEdit: (nodeId) => {
-        console.log('Save edit:', nodeId);
-        const input = document.getElementById(`edit-input-${nodeId}`);
-        if (input && input.value.trim()) {
-          renameNode(nodeId, input.value.trim());
-        }
-        window.flowCallbacks.cancelEdit(nodeId);
-      },
-      cancelEdit: (nodeId) => {
-        const input = document.getElementById(`edit-input-${nodeId}`);
-        const display = document.getElementById(`display-name-${nodeId}`);
-        const editBtn = document.getElementById(`edit-btn-${nodeId}`);
-        const saveBtn = document.getElementById(`save-btn-${nodeId}`);
-
-        if (input && display && editBtn && saveBtn) {
-          input.classList.add('hidden');
-          display.classList.remove('hidden');
-          editBtn.classList.remove('hidden');
-          saveBtn.classList.add('hidden');
-        }
-      },
       deleteNode: (nodeId) => {
         console.log('Delete node:', nodeId);
         if (confirm('¿Eliminar este nodo?')) {
@@ -112,7 +76,7 @@ const FlowView = ({
     return () => {
       delete window.flowCallbacks;
     };
-  }, [tree, toggleFlowNode, renameNode, deleteNode, promoteToRoot, setKeywordModal]);
+  }, [tree, toggleFlowNode, deleteNode, promoteToRoot, setKeywordModal]);
 
   // Función auxiliar para encontrar un nodo por ID
   const findNodeById = (nodes, id) => {
@@ -152,15 +116,7 @@ const FlowView = ({
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               </svg>
 
-              <input
-                id="edit-input-${node.id}"
-                type="text"
-                value="${nodeName}"
-                class="hidden flex-1 px-2 py-1 text-sm border border-white rounded bg-white/20 text-white placeholder-white/70"
-                onkeydown="if(event.key==='Enter') window.flowCallbacks.saveEdit('${node.id}'); if(event.key==='Escape') window.flowCallbacks.cancelEdit('${node.id}');"
-              />
-
-              <span id="display-name-${node.id}" class="flex-1 text-white font-semibold text-sm" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <span class="flex-1 text-white font-semibold text-sm" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                 ${nodeName}
               </span>
             </div>
@@ -229,32 +185,6 @@ const FlowView = ({
               </button>
             ` : ''}
 
-            ${node.isGroup ? `
-              <button
-                id="edit-btn-${node.id}"
-                onclick="window.flowCallbacks.startEdit('${node.id}')"
-                style="padding: 6px 10px; background: rgba(255,255,255,0.2); border-radius: 6px; color: white; transition: all 0.2s; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 32px; min-width: 32px;"
-                onmouseover="this.style.background='rgba(255,255,255,0.3)'; this.style.transform='translateY(-1px)'"
-                onmouseout="this.style.background='rgba(255,255,255,0.2)'; this.style.transform='translateY(0)'"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 21.5 2 22l1.5-5.5L17 3z"/>
-                </svg>
-              </button>
-
-              <button
-                id="save-btn-${node.id}"
-                onclick="window.flowCallbacks.saveEdit('${node.id}')"
-                class="hidden"
-                style="padding: 6px 10px; background: #10b981; border-radius: 6px; color: white; transition: all 0.2s; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 32px; min-width: 32px;"
-                onmouseover="this.style.background='#059669'; this.style.transform='translateY(-1px)'"
-                onmouseout="this.style.background='#10b981'; this.style.transform='translateY(0)'"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M20 6L9 17l-5-5"/>
-                </svg>
-              </button>
-            ` : ''}
           </div>
         </div>
       </div>

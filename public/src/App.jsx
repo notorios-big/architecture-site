@@ -1344,12 +1344,29 @@ function App(){
   
   const renameNode = (id, name)=>{
     const walk=(nodes)=> nodes.map(n=>{
-      if (n.id===id) return {...n, name};
+      // No permitir renombrar grupos - el nombre debe ser automático
+      if (n.id===id && !n.isGroup) return {...n, name};
       if (n.children) return {...n, children: walk(n.children)};
       return n;
     });
     setTree(prev=>walk(prev));
   };
+
+  // Actualizar nombres de grupos automáticamente basado en la keyword de mayor volumen
+  const updateGroupNames = useCallback((nodes) => {
+    return nodes.map(node => {
+      if (node.isGroup && node.children) {
+        const updatedChildren = updateGroupNames(node.children);
+        const newName = getGroupName(updatedChildren);
+        return {
+          ...node,
+          name: newName,
+          children: updatedChildren
+        };
+      }
+      return node;
+    });
+  }, []);
   
   const deleteNode = (id)=>{
     const del=(nodes)=> nodes
@@ -1476,7 +1493,9 @@ function App(){
       volumeCacheRef.current.clear();
 
       const sortedTree = sortOnlyAffectedNode(currentTree, target.id);
-      return sortedTree;
+
+      // Actualizar nombres de grupos automáticamente
+      return updateGroupNames(sortedTree);
     });
 
     // Limpiar selección después de mover
@@ -1484,7 +1503,7 @@ function App(){
 
     const count = nodesToMove.length;
     setSuccess(`${count} nodo${count > 1 ? 's' : ''} movido${count > 1 ? 's' : ''} correctamente`);
-  }, [selectedNodes]);
+  }, [selectedNodes, updateGroupNames]);
 
   const addGroup = ()=>{
     const g = { id: uid('group'), name:'Nuevo Grupo', isGroup:true, collapsed:false, children:[] };
@@ -1492,6 +1511,80 @@ function App(){
     setError('');
     setSuccess('Nuevo grupo creado');
   };
+
+  // Función auxiliar para obtener el nombre del grupo (keyword con mayor volumen)
+  const getGroupName = (children) => {
+    if (!children || children.length === 0) return 'Grupo Vacío';
+
+    // Filtrar solo keywords (no subgrupos)
+    const keywords = children.filter(c => !c.isGroup);
+    if (keywords.length === 0) return 'Grupo Vacío';
+
+    // Encontrar la keyword con mayor volumen
+    const maxVolumeKeyword = keywords.reduce((max, kw) => {
+      const vol = kw.volume || 0;
+      return vol > (max.volume || 0) ? kw : max;
+    }, keywords[0]);
+
+    return maxVolumeKeyword.keyword || maxVolumeKeyword.name || 'Grupo Sin Nombre';
+  };
+
+  // Crear grupo con keywords seleccionadas
+  const createGroupFromSelected = useCallback(() => {
+    if (selectedNodes.size === 0) {
+      setError('No hay keywords seleccionadas');
+      return;
+    }
+
+    // Encontrar todas las keywords seleccionadas
+    const keywordsToGroup = [];
+    const findAndCollectKeywords = (nodes) => {
+      nodes.forEach(node => {
+        if (node.isGroup && node.children) {
+          findAndCollectKeywords(node.children);
+        } else if (selectedNodes.has(node.id)) {
+          keywordsToGroup.push(node);
+        }
+      });
+    };
+    findAndCollectKeywords(tree);
+
+    if (keywordsToGroup.length === 0) {
+      setError('No se encontraron keywords seleccionadas');
+      return;
+    }
+
+    // Crear nuevo grupo con las keywords
+    const newGroup = {
+      id: uid('group'),
+      name: getGroupName(keywordsToGroup),
+      isGroup: true,
+      collapsed: false,
+      children: keywordsToGroup
+    };
+
+    // Remover keywords seleccionadas del árbol y agregar nuevo grupo
+    const removeSelectedKeywords = (nodes) => {
+      return nodes.map(node => {
+        if (node.isGroup && node.children) {
+          return {
+            ...node,
+            children: removeSelectedKeywords(node.children).filter(c =>
+              c.isGroup || !selectedNodes.has(c.id)
+            )
+          };
+        }
+        return node;
+      }).filter(node => node.isGroup || !selectedNodes.has(node.id));
+    };
+
+    const updatedTree = removeSelectedKeywords(tree);
+    updatedTree.push(newGroup);
+
+    setTree(updatedTree);
+    setSelectedNodes(new Set());
+    setSuccess(`Grupo "${newGroup.name}" creado con ${keywordsToGroup.length} keywords`);
+  }, [selectedNodes, tree]);
 
   const exportJSON = ()=>{
     const blob = new Blob([JSON.stringify(tree,null,2)], {type:'application/json'});
@@ -1720,6 +1813,13 @@ function App(){
                       className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all flex items-center gap-2 font-medium shadow-lg tooltip"
                       data-tooltip="Agregar grupo manualmente">
                 <IPlus size={18}/> Grupo
+              </button>
+
+              <button onClick={createGroupFromSelected}
+                      disabled={selectedNodes.size === 0}
+                      className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 font-medium shadow-lg tooltip"
+                      data-tooltip="Crear grupo con keywords seleccionadas">
+                <IPlus size={18}/> Agrupar ({selectedNodes.size})
               </button>
 
               <div className="flex gap-2">
