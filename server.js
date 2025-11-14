@@ -187,7 +187,7 @@ app.post('/api/clean-groups', async (req, res) => {
     }
 
     console.log(`\n🧹 Limpiando batch ${batchIndex + 1}/${totalBatches} con ${groups.length} grupos...`);
-    console.log(`   Modelo: claude-haiku-4-5 | Max tokens: 16384 | Temperatura: 0.2`);
+    console.log(`   Modelo: claude-sonnet-4-5 | Max tokens: 16384 | Temperatura: 0.2`);
 
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
@@ -278,10 +278,18 @@ REGLAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
+    // Log del prompt (solo en el primer batch para no saturar consola)
+    if (batchIndex === 0) {
+      console.log(`\n📝 PROMPT (PASO 3 - Limpiar grupos):`);
+      console.log('─'.repeat(80));
+      console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
+      console.log('─'.repeat(80));
+    }
+
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-5',
         max_tokens: 16384,
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }]
@@ -292,6 +300,15 @@ Responde AHORA con el JSON (sin texto adicional):`;
     });
 
     const responseText = message.content[0].text;
+
+    // Log de la respuesta (solo en el primer batch)
+    if (batchIndex === 0) {
+      console.log(`\n📤 RESPUESTA DEL MODELO (PASO 3):`);
+      console.log('─'.repeat(80));
+      console.log(responseText.slice(0, 1500) + '...\n[TRUNCADO]');
+      console.log('─'.repeat(80));
+    }
+
     let cleaningSuggestions;
 
     // Estrategia multi-nivel para parsear JSON robusto
@@ -454,10 +471,20 @@ REGLAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
+    // Log del prompt (solo el primer item del batch para referencia)
+    if (keywordsBatch.length > 0) {
+      console.log(`\n📝 PROMPT (PASO 4 - Clasificar batch):`);
+      console.log('─'.repeat(80));
+      console.log(`Primera keyword del batch: "${keywordsBatch[0].keyword}"`);
+      console.log(`Candidatos: ${keywordsBatch[0].candidateGroups.length}`);
+      console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
+      console.log('─'.repeat(80));
+    }
+
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-5',
         max_tokens: 4096,
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }]
@@ -468,6 +495,12 @@ Responde AHORA con el JSON (sin texto adicional):`;
     });
 
     const responseText = message.content[0].text;
+
+    // Log de la respuesta
+    console.log(`\n📤 RESPUESTA DEL MODELO (PASO 4):`);
+    console.log('─'.repeat(80));
+    console.log(responseText.slice(0, 1500) + '...\n[TRUNCADO]');
+    console.log('─'.repeat(80));
     let batchClassification;
 
     try {
@@ -564,10 +597,18 @@ Si NINGÚN grupo es apropiado:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
+    // Log del prompt (este endpoint procesa de a una keyword, así que siempre logueamos)
+    console.log(`\n📝 PROMPT (PASO 5 - Clasificar keyword individual):`);
+    console.log('─'.repeat(80));
+    console.log(`Keyword: "${keyword}"`);
+    console.log(`Candidatos: ${candidateGroups.length}`);
+    console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
+    console.log('─'.repeat(80));
+
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1024,
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }]
@@ -578,6 +619,12 @@ Responde AHORA con el JSON (sin texto adicional):`;
     });
 
     const responseText = message.content[0].text;
+
+    // Log de la respuesta
+    console.log(`\n📤 RESPUESTA DEL MODELO (PASO 5):`);
+    console.log('─'.repeat(80));
+    console.log(responseText);
+    console.log('─'.repeat(80));
     let classification;
 
     try {
