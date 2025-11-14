@@ -912,7 +912,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     // Usar retry logic para la llamada a Anthropic
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-5',
         max_tokens: 16384, // Aumentado para manejar muchos cliques
         temperature: 0.1,
         messages: [{ role: 'user', content: prompt }]
