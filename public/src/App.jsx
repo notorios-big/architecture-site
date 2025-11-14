@@ -1624,6 +1624,29 @@ function App(){
     });
   }, []);
 
+  // Expandir todos los nodos por defecto cuando el árbol cambia
+  useEffect(() => {
+    const getAllNodeIds = (nodes) => {
+      const ids = [];
+      const traverse = (node) => {
+        if (node.isGroup && node.children) {
+          const childGroups = node.children.filter(c => c.isGroup);
+          if (childGroups.length > 0) {
+            ids.push(node.id);
+            childGroups.forEach(traverse);
+          }
+        }
+      };
+      nodes.forEach(traverse);
+      return ids;
+    };
+
+    if (tree.length > 0) {
+      const allNodeIds = getAllNodeIds(tree);
+      setExpandedNodes(new Set(allNodeIds));
+    }
+  }, [tree]);
+
 
   return (
     <div className="min-h-screen pb-8">
