@@ -44,42 +44,6 @@ const FlowView = ({
         const node = findNodeById(tree, nodeId);
         if (node) setKeywordModal(node);
       },
-      startEdit: (nodeId) => {
-        console.log('Start edit:', nodeId);
-        const input = document.getElementById(`edit-input-${nodeId}`);
-        const display = document.getElementById(`display-name-${nodeId}`);
-        const editBtn = document.getElementById(`edit-btn-${nodeId}`);
-        const saveBtn = document.getElementById(`save-btn-${nodeId}`);
-
-        if (input && display && editBtn && saveBtn) {
-          input.classList.remove('hidden');
-          display.classList.add('hidden');
-          editBtn.classList.add('hidden');
-          saveBtn.classList.remove('hidden');
-          input.focus();
-        }
-      },
-      saveEdit: (nodeId) => {
-        console.log('Save edit:', nodeId);
-        const input = document.getElementById(`edit-input-${nodeId}`);
-        if (input && input.value.trim()) {
-          renameNode(nodeId, input.value.trim());
-        }
-        window.flowCallbacks.cancelEdit(nodeId);
-      },
-      cancelEdit: (nodeId) => {
-        const input = document.getElementById(`edit-input-${nodeId}`);
-        const display = document.getElementById(`display-name-${nodeId}`);
-        const editBtn = document.getElementById(`edit-btn-${nodeId}`);
-        const saveBtn = document.getElementById(`save-btn-${nodeId}`);
-
-        if (input && display && editBtn && saveBtn) {
-          input.classList.add('hidden');
-          display.classList.remove('hidden');
-          editBtn.classList.remove('hidden');
-          saveBtn.classList.add('hidden');
-        }
-      },
       deleteNode: (nodeId) => {
         console.log('Delete node:', nodeId);
         if (confirm('¿Eliminar este nodo?')) {
@@ -91,13 +55,28 @@ const FlowView = ({
         if (promoteToRoot) {
           promoteToRoot(nodeId);
         }
+      },
+      zoomIn: () => {
+        if (editorRef.current) {
+          editorRef.current.zoom_in();
+        }
+      },
+      zoomOut: () => {
+        if (editorRef.current) {
+          editorRef.current.zoom_out();
+        }
+      },
+      zoomReset: () => {
+        if (editorRef.current) {
+          editorRef.current.zoom_reset();
+        }
       }
     };
 
     return () => {
       delete window.flowCallbacks;
     };
-  }, [tree, toggleFlowNode, renameNode, deleteNode, promoteToRoot, setKeywordModal]);
+  }, [tree, toggleFlowNode, deleteNode, promoteToRoot, setKeywordModal]);
 
   // Función auxiliar para encontrar un nodo por ID
   const findNodeById = (nodes, id) => {
@@ -129,71 +108,67 @@ const FlowView = ({
 
     return `
       <div class="custom-node">
-        <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; flex-direction: column; gap: 10px; padding: 4px;">
           <!-- Header -->
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            </svg>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
 
-            <input
-              id="edit-input-${node.id}"
-              type="text"
-              value="${nodeName}"
-              class="hidden flex-1 px-2 py-1 text-sm border border-white rounded bg-white/20 text-white placeholder-white/70"
-              onkeydown="if(event.key==='Enter') window.flowCallbacks.saveEdit('${node.id}'); if(event.key==='Escape') window.flowCallbacks.cancelEdit('${node.id}');"
-            />
+              <span class="flex-1 text-white font-semibold text-sm" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${nodeName}
+              </span>
+            </div>
 
-            <span id="display-name-${node.id}" class="flex-1 text-white font-semibold text-sm" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              ${nodeName}
-            </span>
+            <div style="display: flex; gap: 4px; flex-shrink: 0;">
+              ${hasParent && node.isGroup ? `
+                <button
+                  onclick="window.flowCallbacks.promoteToRoot('${node.id}')"
+                  style="padding: 4px; border-radius: 4px; transition: all 0.2s;"
+                  onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+                  onmouseout="this.style.background='transparent'"
+                  title="Promover a raíz"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7"/>
+                  </svg>
+                </button>
+              ` : ''}
 
-            ${hasParent && node.isGroup ? `
               <button
-                onclick="window.flowCallbacks.promoteToRoot('${node.id}')"
+                onclick="window.flowCallbacks.deleteNode('${node.id}')"
                 style="padding: 4px; border-radius: 4px; transition: all 0.2s;"
                 onmouseover="this.style.background='rgba(255,255,255,0.2)'"
                 onmouseout="this.style.background='transparent'"
-                title="Promover a raíz"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                 </svg>
               </button>
-            ` : ''}
-
-            <button
-              onclick="window.flowCallbacks.deleteNode('${node.id}')"
-              style="padding: 4px; border-radius: 4px; transition: all 0.2s;"
-              onmouseover="this.style.background='rgba(255,255,255,0.2)'"
-              onmouseout="this.style.background='transparent'"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
+            </div>
           </div>
 
           <!-- Metrics -->
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: white;">
-            <div style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 16px; font-weight: bold;">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: white;">
+            <div style="background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 16px; font-weight: bold; white-space: nowrap;">
               ${volume.toLocaleString('es-CL')} vol.
             </div>
             ${node.isGroup && keywordCount > 0 ? `
-              <div style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 16px;">
+              <div style="background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 16px; white-space: nowrap;">
                 ${keywordCount} KWs
               </div>
             ` : ''}
           </div>
 
           <!-- Actions -->
-          <div style="display: flex; gap: 4px;">
+          <div style="display: flex; gap: 6px; align-items: center;">
             ${hasChildGroups ? `
               <button
                 onclick="window.flowCallbacks.toggleNode('${node.id}')"
-                style="flex: 1; padding: 4px 8px; background: rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 12px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px; border: none; cursor: pointer;"
-                onmouseover="this.style.background='rgba(255,255,255,0.3)'"
-                onmouseout="this.style.background='rgba(255,255,255,0.2)'"
+                style="flex: 1; padding: 6px 10px; background: rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 12px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; border: none; cursor: pointer; min-height: 32px;"
+                onmouseover="this.style.background='rgba(255,255,255,0.3)'; this.style.transform='translateY(-1px)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.2)'; this.style.transform='translateY(0)'"
               >
                 ${isExpanded ? '▼ Contraer' : '▶ Expandir'}
               </button>
@@ -202,40 +177,14 @@ const FlowView = ({
             ${node.isGroup && keywordCount > 0 ? `
               <button
                 onclick="window.flowCallbacks.showKeywords('${node.id}')"
-                style="flex: 1; padding: 4px 8px; background: rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 12px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px; border: none; cursor: pointer;"
-                onmouseover="this.style.background='rgba(255,255,255,0.3)'"
-                onmouseout="this.style.background='rgba(255,255,255,0.2)'"
+                style="flex: 1; padding: 6px 10px; background: rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 12px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; border: none; cursor: pointer; min-height: 32px;"
+                onmouseover="this.style.background='rgba(255,255,255,0.3)'; this.style.transform='translateY(-1px)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.2)'; this.style.transform='translateY(0)'"
               >
                 👁 Ver KWs
               </button>
             ` : ''}
 
-            ${node.isGroup ? `
-              <button
-                id="edit-btn-${node.id}"
-                onclick="window.flowCallbacks.startEdit('${node.id}')"
-                style="padding: 4px 8px; background: rgba(255,255,255,0.2); border-radius: 4px; color: white; transition: all 0.2s; border: none; cursor: pointer;"
-                onmouseover="this.style.background='rgba(255,255,255,0.3)'"
-                onmouseout="this.style.background='rgba(255,255,255,0.2)'"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 21.5 2 22l1.5-5.5L17 3z"/>
-                </svg>
-              </button>
-
-              <button
-                id="save-btn-${node.id}"
-                onclick="window.flowCallbacks.saveEdit('${node.id}')"
-                class="hidden"
-                style="padding: 4px 8px; background: #10b981; border-radius: 4px; color: white; transition: all 0.2s; border: none; cursor: pointer;"
-                onmouseover="this.style.background='#059669'"
-                onmouseout="this.style.background='#10b981'"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M20 6L9 17l-5-5"/>
-                </svg>
-              </button>
-            ` : ''}
           </div>
         </div>
       </div>
@@ -454,29 +403,132 @@ const FlowView = ({
   }
 
   return (
-    <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)' }}>
+    <div className="glass rounded-2xl shadow-2xl overflow-hidden animate-fade-in" style={{ height: 'calc(100vh - 280px)', position: 'relative' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
         {/* Drawflow se renderiza aquí */}
+      </div>
+
+      {/* Controles de zoom */}
+      <div style={{
+        position: 'absolute',
+        left: '20px',
+        bottom: '20px',
+        display: 'flex',
+        gap: '8px',
+        zIndex: 10
+      }}>
+        <button
+          onClick={() => window.flowCallbacks?.zoomOut()}
+          style={{
+            width: '40px',
+            height: '40px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            color: 'white',
+            fontSize: '24px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.transform = 'scale(1.1)';
+            e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+          }}
+          title="Alejar"
+        >
+          −
+        </button>
+
+        <button
+          onClick={() => window.flowCallbacks?.zoomReset()}
+          style={{
+            height: '40px',
+            padding: '0 16px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            transition: 'all 0.2s'
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.transform = 'scale(1.05)';
+            e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+          }}
+          title="Restablecer zoom"
+        >
+          100%
+        </button>
+
+        <button
+          onClick={() => window.flowCallbacks?.zoomIn()}
+          style={{
+            width: '40px',
+            height: '40px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            color: 'white',
+            fontSize: '24px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.transform = 'scale(1.1)';
+            e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+          }}
+          title="Acercar"
+        >
+          +
+        </button>
       </div>
 
       {/* Controles de ayuda */}
       <div style={{
         position: 'absolute',
-        right: '10px',
-        top: '10px',
-        background: 'white',
-        padding: '10px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        right: '20px',
+        top: '20px',
+        background: 'rgba(255, 255, 255, 0.95)',
+        padding: '12px 16px',
+        borderRadius: '12px',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
         fontSize: '12px',
-        zIndex: 5,
-        maxWidth: '200px'
+        zIndex: 10,
+        maxWidth: '220px',
+        backdropFilter: 'blur(10px)'
       }}>
-        <strong>💡 Controles:</strong><br/>
-        • Arrastra nodos para moverlos<br/>
-        • Haz clic en Expandir para ver subgrupos<br/>
-        • Usa la rueda del mouse para zoom<br/>
-        • Arrastra el canvas para desplazarte
+        <strong style={{ fontSize: '13px', color: '#333' }}>💡 Controles:</strong><br/>
+        <div style={{ marginTop: '8px', lineHeight: '1.6', color: '#555' }}>
+          • Arrastra nodos para moverlos<br/>
+          • Clic en Expandir para ver subgrupos<br/>
+          • Usa los botones +/− para zoom<br/>
+          • Arrastra el canvas para desplazarte
+        </div>
       </div>
     </div>
   );
