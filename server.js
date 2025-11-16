@@ -305,6 +305,150 @@ FORMATO DE RESPUESTA (SOLO las keywords que deben MOVERSE a LLM-POR-CLASIFICAR):
   ]
 }
 
+EJEMPLO:
+
+Tu recibes esto:
+[
+  {
+    "index": 0,
+    "name": "Dupe Good Girl Carolina Herrera",
+    "keywords": [
+      {
+        "keywordId": "kw-001",
+        "keyword": "dupe good girl",
+        "volume": 8900
+      },
+      {
+        "keywordId": "kw-002",
+        "keyword": "clon good girl carolina herrera",
+        "volume": 5200
+      },
+      {
+        "keywordId": "kw-003",
+        "keyword": "replica good girl",
+        "volume": 3400
+      },
+      {
+        "keywordId": "kw-004",
+        "keyword": "perfume similar a good girl",
+        "volume": 2100
+      },
+      {
+        "keywordId": "kw-005",
+        "keyword": "perfume mujer dulce",
+        "volume": 1200
+      },
+      {
+        "keywordId": "kw-006",
+        "keyword": "dupe 212 vip",
+        "volume": 890
+      },
+      {
+        "keywordId": "kw-007",
+        "keyword": "alternativa good girl barata",
+        "volume": 650
+      }
+    ]
+  },
+  {
+    "index": 1,
+    "name": "Perfumes Amaderados Hombre",
+    "keywords": [
+      {
+        "keywordId": "kw-101",
+        "keyword": "perfumes amaderados hombre",
+        "volume": 6700
+      },
+      {
+        "keywordId": "kw-102",
+        "keyword": "fragancias amaderadas masculinas",
+        "volume": 4200
+      },
+      {
+        "keywordId": "kw-103",
+        "keyword": "perfumes con madera hombre",
+        "volume": 2800
+      },
+      {
+        "keywordId": "kw-104",
+        "keyword": "perfume amaderado otoño",
+        "volume": 1500
+      },
+      {
+        "keywordId": "kw-105",
+        "keyword": "perfumes frescos hombre",
+        "volume": 980
+      },
+      {
+        "keywordId": "kw-106",
+        "keyword": "mejor perfume amaderado",
+        "volume": 720
+      }
+    ]
+  },
+  {
+    "index": 2,
+    "name": "Perfume en Oferta",
+    "keywords": [
+      {
+        "keywordId": "kw-201",
+        "keyword": "perfume en oferta",
+        "volume": 12300
+      },
+      {
+        "keywordId": "kw-202",
+        "keyword": "perfumes baratos",
+        "volume": 9800
+      },
+      {
+        "keywordId": "kw-203",
+        "keyword": "perfumes rebajados",
+        "volume": 5600
+      },
+      {
+        "keywordId": "kw-204",
+        "keyword": "fragancias descuento",
+        "volume": 3200
+      },
+      {
+        "keywordId": "kw-205",
+        "keyword": "perfume hombre oferta",
+        "volume": 2100
+      },
+      {
+        "keywordId": "kw-206",
+        "keyword": "crema corporal barata",
+        "volume": 450
+      }
+    ]
+  }
+]
+
+
+Y deberias entregar esto:
+{
+  "toClassify": [
+    {
+      "keywordId": "kw-005",
+      "keyword": "perfume mujer dulce"
+    },
+    {
+      "keywordId": "kw-006",
+      "keyword": "dupe 212 vip"
+    },
+    {
+      "keywordId": "kw-105",
+      "keyword": "perfumes frescos hombre"
+    },
+    {
+      "keywordId": "kw-206",
+      "keyword": "crema corporal barata"
+    }
+  ]
+}
+
+
+
 REGLAS CRÍTICAS:
 - Enfócate en las keywords de MAYOR VOLUMEN para definir la intención del grupo
 - Solo devuelve las keywords que DEBEN MOVERSE a LLM-POR-CLASIFICAR
