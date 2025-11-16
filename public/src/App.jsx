@@ -746,8 +746,8 @@ function App(){
       let newGroupsCreated = 0;
       const classifiedKeywordIds = new Set(); // Rastrear keywords clasificadas por ID
 
-      // 1. Procesar keywords en batches pequeños (10) para control de tokens
-      const BATCH_SIZE = 10;
+      // 1. Procesar keywords en batches de 50 para optimizar velocidad
+      const BATCH_SIZE = 50;
       const totalBatches = Math.ceil(keywordsToClassify.length / BATCH_SIZE);
 
       for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
