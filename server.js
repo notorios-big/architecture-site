@@ -254,7 +254,7 @@ FORMATO DE RESPUESTA:
 {
   "cleanedGroups": [
     { 
-      "reason": "",
+      "reason": "La URL apunta al perfume good girl exclusivamente, pese a que mujer dulce está cerca, mujer dulce es más amplio",
       "groupIndex": 0,
       "keepKeywords": ["dupe good girl", "clon good girl"],
       "removeKeywords": [
