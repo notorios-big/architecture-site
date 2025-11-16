@@ -253,14 +253,10 @@ IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto a
 FORMATO DE RESPUESTA:
 {
   "cleanedGroups": [
-    { 
+    {
       "reason": "La URL apunta al perfume good girl exclusivamente, pese a que mujer dulce está cerca, mujer dulce es más amplio",
       "groupIndex": 0,
-      "keepKeywords": ["dupe good girl", "clon good girl"],
-      "removeKeywords": [
-        {"keyword": "perfume mujer dulce", "volume": 1200},
-        {"keyword": "fragancia hombre", "volume": 800}
-      ]
+      "keepKeywords": ["dupe good girl", "clon good girl"]
     }
   ],
   "toClassify": [
@@ -272,7 +268,6 @@ FORMATO DE RESPUESTA:
 REGLAS:
 - Solo incluye grupos que necesiten limpieza
 - toClassify debe contener TODAS las keywords removidas de todos los grupos CON SU VOLUMEN
-- removeKeywords debe incluir el objeto completo de cada keyword con su volumen
 - Si un grupo está bien, no lo incluyas en cleanedGroups
 - NO sugieras títulos, trabajaremos con las keywords de mayor volumen
 
