@@ -662,9 +662,6 @@ app.post('/api/classify-keywords-batch', async (req, res) => {
 
     const prompt = `Eres un experto en SEO. Debes clasificar MÚLTIPLES keywords en sus grupos más apropiados.
 
-KEYWORDS A CLASIFICAR (BATCH):
-${batchDataStr}
-
 Para cada keyword, analiza la intención de búsqueda y determina cuál grupo candidato es más apropiado.
 
 ⚠️ CRÍTICO - FORMATO DE RESPUESTA:
@@ -685,27 +682,42 @@ FORMATO DE RESPUESTA:
 {
   "classifications": [
     {
-      "keywordId": "kw-1672849201234-a8f3b9",
-      "batchIndex": 0,
-      "selectedGroupIndex": 2,
-      "confidence": 0.85
+      "keywordId": "kw-xxx",
+      "selectedGroupIndex": 2
     },
     {
-      "keywordId": "kw-1672849201567-c4d2e1",
-      "batchIndex": 1,
-      "selectedGroupIndex": -1,
-      "confidence": 0.9,
-      "suggestedGroupName": "Dupe Sauvage Dior"
+      "keywordId": "kw-yyy",
+      "selectedGroupIndex": -1
+    }
+  ]
+}
+
+EJEMPLO COMPLETO:
+
+INPUT que recibes:
+${batchDataStr}
+
+OUTPUT que debes entregar:
+{
+  "classifications": [
+    {
+      "keywordId": "${keywordsBatch[0]?.keywordObj?.id || 'kw-001'}",
+      "selectedGroupIndex": 0
+    },
+    {
+      "keywordId": "${keywordsBatch[1]?.keywordObj?.id || 'kw-002'}",
+      "selectedGroupIndex": -1
     }
   ]
 }
 
 REGLAS:
 - Devuelve una clasificación por cada keyword en el batch
-- Incluye SIEMPRE keywordId y batchIndex (ambos deben coincidir con el input)
-- selectedGroupIndex: índice del grupo candidato elegido, o -1 si ninguno es apropiado
-- Si selectedGroupIndex es -1, incluye suggestedGroupName para crear nuevo grupo
-- NO incluyas explicaciones o razones, solo la clasificación
+- Cada clasificación tiene SOLO 2 campos: keywordId y selectedGroupIndex
+- selectedGroupIndex: índice del grupo candidato elegido (0, 1, 2...), o -1 si ninguno es apropiado
+- Si selectedGroupIndex es -1, el sistema creará automáticamente un grupo nuevo con el nombre de la keyword
+- NO incluyas otros campos (confidence, reason, suggestedGroupName, etc.)
+- El keywordId debe coincidir EXACTAMENTE con el que recibiste en el input
 
 Responde AHORA con el JSON (sin texto adicional):`;
 

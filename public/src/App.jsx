@@ -896,11 +896,11 @@ function App(){
               classifiedCount++;
               console.log(`      ✅ Movida a "${targetGroup.name}"`);
             }
-          } else if (classification.suggestedGroupName) {
-            // Crear nuevo grupo
+          } else {
+            // Crear nuevo grupo con el nombre de la keyword
             const newGroup = {
               id: uid('group'),
-              name: classification.suggestedGroupName,
+              name: kw.keyword,
               isGroup: true,
               collapsed: false,
               children: [kw]
@@ -916,8 +916,7 @@ function App(){
             newGroupsCreated++;
             classifiedCount++;
 
-            console.log(`      ✨ Nuevo grupo creado: "${classification.suggestedGroupName}"`);
-            }
+            console.log(`      ✨ Nuevo grupo creado: "${kw.keyword}"`);
           }
 
         } catch (fetchErr) {
