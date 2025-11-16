@@ -1,19 +1,19 @@
 #Objetivo:
-Tener siempre presente cómo se agrupan las keywords relacionadas con “perfumes dupe / equivalencias / inspiraciones” para que cada grupo apunte a una sola URL coherente (ficha de producto o colección, o informativa).
+Tener siempre presente cómo se agrupan las keywords relacionadas con "perfumes dupe / equivalencias / inspiraciones" para que cada grupo apunte a una sola URL coherente (ficha de producto o colección, o informativa).
 
 #Instrucciones de agrupación:
 
-Recuerda siempre que cada grupo debe resolver exactamente una intención de búsqueda y apuntar a una única URL coherente; esto significa que las palabras deben compartir el mismo propósito del usuario (buscar un dupe específico, un listado, una categoría, un tipo de fragancia, una versión femenina/masculina, un precio o una característica concreta). No mezcles: perfumes distintos, géneros distintos, listados con productos específicos, ni atributos de compra (barato, económico) con atributos aromáticos (amaderado, cítrico, dulce). Cuando un término cambia el objetivo de la búsqueda, aunque sea ligeramente, se convierte en otro grupo. En caso de duda, pregúntate: “¿Estas keywords deberían llevar a la misma página sin decepcionar al usuario?”. Si la respuesta es no, sepáralas.
+Recuerda siempre que cada grupo debe resolver exactamente una intención de búsqueda y apuntar a una única URL coherente; esto significa que las palabras deben compartir el mismo propósito del usuario (buscar un dupe específico, un listado, una categoría, un tipo de fragancia, una versión femenina/masculina, un precio o una característica concreta). No mezcles: perfumes distintos, géneros distintos, listados con productos específicos, ni atributos de compra (barato, económico) con atributos aromáticos (amaderado, cítrico, dulce). Cuando un término cambia el objetivo de la búsqueda, aunque sea ligeramente, se convierte en otro grupo. En caso de duda, pregúntate: "¿Estas keywords deberían llevar a la misma página sin decepcionar al usuario?". Si la respuesta es no, sepáralas.
 
 Ejemplos de agrupación:
 
-1.1. Grupo “dupes / equivalencias”:
+1.1. Grupo "dupes / equivalencias":
 [dupes, clones, perfumes replica, replica perfume, equivalencia, equivalencias, perfume inspirado, perfume inspirado en, alternativas a, similares, perfume similar, imitacion, imitaciones, perfume tipo X, dupe original, equivalente al original, similar al original]
 
 otro grupo porque es diferente intención de búsqueda:
 [dupe barato, alternativa barata, dupes economicos]
 
-1.2. Grupo “mujer / femenino”:
+1.2. Grupo "mujer / femenino":
 [perfume mujer, perfume mujeres, fragancias femeninas, perfumes para ella, perfumes para chicas]
 
 otro grupo porque es diferente intención de búsqueda, si bien es perfume de mujer, apunta a una URL de producto en este caso:
@@ -34,22 +34,22 @@ y uno más especifico:
 
 2. Otros ejemplos:
 
-2.1. Grupo “Dupe Good Girl Carolina Herrera”:
+2.1. Grupo "Dupe Good Girl Carolina Herrera":
 [dupe good girl, clon good girl, perfume tipo good girl, alternativa good girl, perfume inspirado good girl, equivalente good girl mujer]
 
 diferente a:
 [perfume de mujer carolina herrara, perfume ch mujer]
 
-2.2. Grupo “Dupe 212 Men”:
+2.2. Grupo "Dupe 212 Men":
 [dupe 212 men, clon 212 hombre, alternativa 212 masculino, perfume inspirado 212 men, similar 212 men]
 
-2.3. Grupo “Mejores dupes mujer – listado”:
+2.3. Grupo "Mejores dupes mujer – listado":
 [mejores dupes perfume mujer, top dupes femeninos, 5 mejores dupes baratos mujer, ranking dupes mujer, lista perfumes inspirados mujer]
 
-2.4. Grupo “Dupe Sauvage Dior”:
+2.4. Grupo "Dupe Sauvage Dior":
 [dupe sauvage, clon sauvage dior, alternativa sauvage hombre, perfume tipo sauvage, inspirado sauvage]
 
-2.5. Grupo “Dupes nicho mujer – listado”:
+2.5. Grupo "Dupes nicho mujer – listado":
 [dupes perfumes nicho mujer, alternativas nicho mujer, equivalencias nicho femenino, clones perfumes nicho mujer]
 
 2.6. Perfumes baratos:
