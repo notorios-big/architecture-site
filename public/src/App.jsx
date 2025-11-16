@@ -531,6 +531,7 @@ function App(){
           keywords: (group.children || [])
             .filter(child => !child.isGroup)
             .map(child => ({
+              id: child.id, // Enviar ID de la keyword
               keyword: child.keyword || child.name,
               volume: child.volume || 0
             }))
@@ -555,7 +556,31 @@ function App(){
         const result = await resp.json();
         const suggestions = result.suggestions;
 
-        // Aplicar limpiezas
+        // PASO 1: Recolectar keywords originales ANTES de eliminarlas (para preservar volúmenes)
+        const keywordMap = new Map(); // keywordId -> keyword object
+
+        if (suggestions.cleanedGroups) {
+          suggestions.cleanedGroups.forEach(cleaned => {
+            const group = batch[cleaned.groupIndex];
+            const groupIdx = updatedTree.findIndex(n => n.id === group.id);
+            if (groupIdx === -1) return;
+
+            const originalChildren = updatedTree[groupIdx].children || [];
+
+            // Guardar todas las keywords que serán removidas en el mapa
+            originalChildren.forEach(child => {
+              if (!child.isGroup) {
+                const kwText = child.keyword || child.name;
+                // Si NO está en keepKeywords, significa que será removida
+                if (!cleaned.keepKeywords.includes(kwText)) {
+                  keywordMap.set(child.id, child); // Guardar keyword completa con volumen
+                }
+              }
+            });
+          });
+        }
+
+        // PASO 2: Aplicar limpiezas (eliminar keywords de grupos)
         if (suggestions.cleanedGroups) {
           suggestions.cleanedGroups.forEach(cleaned => {
             const group = batch[cleaned.groupIndex];
@@ -599,8 +624,15 @@ function App(){
           });
         }
 
+        // PASO 3: Agregar keywords removidas a allKeywordsToClassify con su mapa para búsqueda posterior
         if (suggestions.toClassify) {
-          allKeywordsToClassify.push(...suggestions.toClassify);
+          suggestions.toClassify.forEach(kwData => {
+            // Agregar al array junto con el mapa para búsqueda
+            allKeywordsToClassify.push({
+              ...kwData,
+              _originalKeyword: keywordMap.get(kwData.keywordId) // Guardar referencia a keyword original
+            });
+          });
         }
 
         if (i < batches.length - 1) {
@@ -615,25 +647,35 @@ function App(){
           n.isGroup && n.name === 'LLM-POR-CLASIFICAR'
         );
 
-        // Convertir keywords a objetos con volumen preservado
+        // Usar keywords originales guardadas en _originalKeyword (preserva volúmenes)
         const newKeywords = allKeywordsToClassify.map(kwData => {
-          // Si ya viene como objeto (del servidor nuevo), usarlo directo
-          if (typeof kwData === 'object' && kwData.keyword) {
+          // Si tiene keyword original guardada, usarla directamente
+          if (kwData._originalKeyword) {
+            const original = kwData._originalKeyword;
+            console.log(`   ✓ Keyword "${original.keyword}" preservada con volumen ${original.volume}`);
+            return original;
+          }
+
+          // Fallback: si viene con keywordId pero no tenemos el original (raro)
+          if (kwData.keywordId) {
+            console.warn(`   ⚠️ Keyword "${kwData.keyword}" sin objeto original, creando nueva con volumen 0`);
             return {
-              id: uid('kw'),
+              id: kwData.keywordId,
               keyword: kwData.keyword,
-              volume: kwData.volume || 0,
+              volume: 0,
               isGroup: false
             };
           }
-          // Si viene como string (legacy), crear con volumen 0
+
+          // Fallback para formato legacy (sin keywordId) - no debería pasar
+          console.warn(`   ⚠️ Keyword sin keywordId (legacy), creando nueva`);
           return {
             id: uid('kw'),
-            keyword: kwData,
-            volume: 0,
+            keyword: typeof kwData === 'string' ? kwData : kwData.keyword,
+            volume: kwData.volume || 0,
             isGroup: false
           };
-        });
+        }).filter(Boolean);
 
         if (toClassifyGroup) {
           // Actualizar grupo existente

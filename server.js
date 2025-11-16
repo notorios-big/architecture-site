@@ -220,17 +220,17 @@ app.post('/api/clean-groups', async (req, res) => {
       console.log(`   ⚠️ No se encontró niche-context.json, usando contexto genérico`);
     }
 
-    // Preparar datos de grupos CON volúmenes de keywords (optimizado para evitar sesgos)
+    // Preparar datos de grupos CON IDs de keywords (sin volúmenes para ahorrar tokens)
     const groupsData = groups.map((group, idx) => {
       const keywords = group.keywords || [];
       const keywordsList = keywords.map(kw => {
         // Manejar diferentes formatos de keyword
         if (typeof kw === 'string') {
-          return { keyword: kw, volume: 0 };
+          return { keywordId: kw.id || `kw-${idx}-${Math.random()}`, keyword: kw };
         }
         return {
-          keyword: kw.keyword || kw.name || '',
-          volume: kw.volume || 0
+          keywordId: kw.id || kw.keywordId || `kw-${idx}-${Math.random()}`,
+          keyword: kw.keyword || kw.name || ''
         };
       }).filter(k => k.keyword);
 
@@ -293,15 +293,21 @@ FORMATO DE RESPUESTA:
     }
   ],
   "toClassify": [
-    {"keyword": "perfume mujer dulce", "volume": 1200},
-    {"keyword": "fragancia hombre", "volume": 800}
+    {
+      "keywordId": "kw-1234567890-abc123",
+      "keyword": "perfume mujer dulce"
+    },
+    {
+      "keywordId": "kw-0987654321-def456",
+      "keyword": "fragancia hombre"
+    }
   ]
 }
 
 REGLAS:
 - Solo incluye grupos que necesiten limpieza
-- toClassify debe contener TODAS las keywords removidas de todos los grupos CON SU VOLUMEN
-- removeKeywords debe incluir el objeto completo de cada keyword con su volumen
+- toClassify debe contener TODAS las keywords removidas con su keywordId (para preservar el ID original y volumen)
+- NO incluyas volúmenes en toClassify (se preservan automáticamente con el keywordId)
 - Si un grupo está bien, no lo incluyas en cleanedGroups
 - NO sugieras títulos, trabajaremos con las keywords de mayor volumen
 
