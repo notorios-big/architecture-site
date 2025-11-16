@@ -220,7 +220,7 @@ app.post('/api/clean-groups', async (req, res) => {
       console.log(`   ⚠️ No se encontró niche-context.json, usando contexto genérico`);
     }
 
-    // Preparar datos de grupos CON volúmenes de keywords
+    // Preparar datos de grupos CON volúmenes de keywords (optimizado para evitar sesgos)
     const groupsData = groups.map((group, idx) => {
       const keywords = group.keywords || [];
       const keywordsList = keywords.map(kw => {
@@ -236,9 +236,9 @@ app.post('/api/clean-groups', async (req, res) => {
 
       return {
         index: idx,
-        name: group.name,
-        keywords: keywordsList,
-        volume: group.volume || 0
+        keywords: keywordsList
+        // name: removido para evitar sesgo en decisiones del LLM
+        // volume: removido (redundante, es suma de keywords)
       };
     });
 
@@ -286,10 +286,10 @@ Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con
 FORMATO DE RESPUESTA:
 {
   "cleanedGroups": [
-    { 
-      "reason": "URL específico para perfume dupe Good Girl"
+    {
       "groupIndex": 0,
-      "keepKeywords": ["dupe good girl", "clon good girl"]
+      "keepKeywords": ["dupe good girl", "clon good girl"],
+      "reason": "URL específico para perfume dupe Good Girl"
     }
   ],
   "toClassify": [
