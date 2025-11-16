@@ -273,10 +273,11 @@ OBJETIVO:
 1. Usa el NOMBRE del grupo y las keywords de MAYOR VOLUMEN para entender la intención
 2. Las keywords de menor volumen deben ser coherentes con esta intención
 3. Si una keyword NO tiene sentido con el nombre del grupo y las keywords principales, debe moverse a "LLM-POR-CLASIFICAR"
-4. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
+4. MUY IMPORTANTE QUE SIGAS QUE Un grupo representa UNA URL específica. Por ejemplo:
    - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
    - "dupe de mujer" → URL diferente a "dupe 212 vip"
-   - Solo agrupa keywords que podrían responderse en la MISMA landing page
+5. En resumen, Solo mantén en los grupos las keywords que podrían responderse en la MISMA landing page. 
+6. La keyword que manda al grupo es la de mayor volumen
 
 GRUPOS A LIMPIAR (keywords ordenadas por volumen DESC):
 ${JSON.stringify(groupsData, null, 2)}
