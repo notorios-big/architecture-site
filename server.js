@@ -190,6 +190,27 @@ const loadNicheContext = () => {
   return null;
 };
 
+// Función auxiliar para llamadas con streaming a Anthropic
+const createMessageWithStreaming = async (anthropic, params) => {
+  let fullText = '';
+
+  const stream = await anthropic.messages.stream({
+    ...params,
+    stream: true
+  });
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+      fullText += event.delta.text;
+    }
+  }
+
+  // Retornar en el mismo formato que messages.create() sin streaming
+  return {
+    content: [{ text: fullText }]
+  };
+};
+
 // ENDPOINT 1: Limpieza de grupos
 // Analiza batches de ~50 grupos, saca palabras que no tienen sentido
 // y las mueve a un grupo especial "LLM-POR-CLASIFICAR"
@@ -463,9 +484,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       console.log('─'.repeat(80));
     }
 
-    // Usar retry logic para la llamada a Anthropic
+    // Usar retry logic para la llamada a Anthropic con streaming
     const message = await retryAnthropic(async () => {
-      return await anthropic.messages.create({
+      return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.2,
@@ -673,9 +694,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       console.log('─'.repeat(80));
     }
 
-    // Usar retry logic para la llamada a Anthropic
+    // Usar retry logic para la llamada a Anthropic con streaming
     const message = await retryAnthropic(async () => {
-      return await anthropic.messages.create({
+      return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.2,
@@ -811,9 +832,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
     console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
     console.log('─'.repeat(80));
 
-    // Usar retry logic para la llamada a Anthropic
+    // Usar retry logic para la llamada a Anthropic con streaming
     const message = await retryAnthropic(async () => {
-      return await anthropic.messages.create({
+      return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.2,
@@ -960,9 +981,9 @@ NOTA: Revisa TODOS los grupos cuidadosamente buscando relaciones de generalidad/
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    // Usar retry logic para la llamada a Anthropic
+    // Usar retry logic para la llamada a Anthropic con streaming
     const message = await retryAnthropic(async () => {
-      return await anthropic.messages.create({
+      return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.3,
@@ -1187,9 +1208,9 @@ REGLAS CRÍTICAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    // Usar retry logic para la llamada a Anthropic
+    // Usar retry logic para la llamada a Anthropic con streaming
     const message = await retryAnthropic(async () => {
-      return await anthropic.messages.create({
+      return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000, // Aumentado para manejar muchos cliques
         temperature: 0.1,
