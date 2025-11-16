@@ -220,7 +220,17 @@ const FlowView = ({
     // Inicializar Drawflow
     try {
       const editor = new Drawflow(drawflowDiv);
+
+      // ========== CONFIGURACIONES AVANZADAS DE DRAWFLOW ==========
+      // Habilitar reroute para conexiones más flexibles
       editor.reroute = true;
+
+      // Configurar curvaturas para conexiones más suaves y profesionales
+      editor.reroute_fix_curvature = true;
+      editor.curvature = 0.5;              // Curvatura general de las conexiones
+      editor.reroute_curvature = 0.5;      // Curvatura de los puntos de reroute
+      editor.reroute_curvature_start_end = 0.5; // Curvatura en inicio y fin
+
       editor.start();
 
       editorRef.current = editor;
@@ -262,98 +272,305 @@ const FlowView = ({
         // Por ahora solo logueamos, podrías implementar lógica para desconectar nodos
       });
 
-      // Construir el diagrama
-      const HORIZONTAL_SPACING = 400;
-      const VERTICAL_SPACING = 150;
-      const levelPositions = new Map();
-      const nodeIdMap = new Map(); // Mapeo de node.id a drawflow node id
-      const connections = []; // Array para guardar las conexiones a crear
+      // ========== CONFIGURACIÓN DEL LAYOUT ==========
+      const HORIZONTAL_SPACING = 600;  // Aumentado para mejor espaciado
+      const VERTICAL_SPACING = 250;    // Aumentado para mejor espaciado
+      const NODE_WIDTH = HORIZONTAL_SPACING;
+      const TREE_SPACING = 200;        // Espacio extra entre árboles raíz
 
-      const traverse = (node, level = 0, parentId = null) => {
-        if (!node) return;
+      // ========== ALGORITMO DE LAYOUT DE ÁRBOL (Reingold-Tilford) ==========
+
+      // Estructura para almacenar información de layout de cada nodo
+      const nodeLayoutInfo = new Map();
+      const nodeIdMap = new Map();
+      const connections = [];
+
+      // Paso 1: Construir estructura de árbol con información de hijos expandidos
+      const buildTreeStructure = (node, parentId = null) => {
+        if (!node) return null;
 
         const isExpanded = expandedNodes.has(node.id);
+        const childGroups = (node.isGroup && node.children)
+          ? node.children.filter(c => c.isGroup)
+          : [];
 
-        console.log(`Procesando nodo: ${node.name || node.keyword}, Level: ${level}, Parent: ${parentId}, Expanded: ${isExpanded}`);
+        const treeNode = {
+          id: node.id,
+          node: node,
+          parentId: parentId,
+          children: [],
+          width: 1,  // Ancho en unidades de nodos
+          x: 0,
+          y: 0,
+          mod: 0,    // Modificador para el algoritmo Reingold-Tilford
+          thread: null,
+          ancestor: null,
+          change: 0,
+          shift: 0,
+          prelim: 0
+        };
 
-        // Calcular posición
-        if (!levelPositions.has(level)) {
-          levelPositions.set(level, []);
+        // Solo incluir hijos si el nodo está expandido
+        if (isExpanded && childGroups.length > 0) {
+          treeNode.children = childGroups
+            .map(child => buildTreeStructure(child, node.id))
+            .filter(c => c !== null);
         }
 
-        const usedPositions = levelPositions.get(level);
-        const yPosition = usedPositions.length * VERTICAL_SPACING + 50;
-        usedPositions.push(yPosition);
+        return treeNode;
+      };
 
-        const xPosition = level * HORIZONTAL_SPACING + 50;
+      // Paso 2: Calcular el ancho de cada subárbol
+      const calculateSubtreeWidths = (treeNode) => {
+        if (!treeNode) return 1;
 
-        // Generar HTML del nodo
-        const html = generateNodeHTML(node, parentId !== null);
-
-        // Agregar nodo a Drawflow y capturar el ID real que devuelve
-        const currentDrawflowId = editor.addNode(
-          `node-${node.id}`,  // name
-          1,                   // inputs - tiene 1 input para poder conectar
-          1,                   // outputs
-          xPosition,
-          yPosition,
-          `node-${node.id}`,  // class
-          {},                  // data
-          html                 // html
-        );
-
-        nodeIdMap.set(node.id, currentDrawflowId);
-
-        console.log(`  → Nodo agregado con Drawflow ID: ${currentDrawflowId} en posición (${xPosition}, ${yPosition})`);
-
-        // Guardar la conexión para crearla después
-        if (parentId !== null) {
-          const parentDrawflowId = nodeIdMap.get(parentId);
-          connections.push({
-            from: parentDrawflowId,
-            to: currentDrawflowId,
-            parentName: parentId,
-            childName: node.id
-          });
-          console.log(`  → Conexión pendiente: ${parentDrawflowId} -> ${currentDrawflowId}`);
+        if (treeNode.children.length === 0) {
+          treeNode.width = 1;
+          return 1;
         }
 
-        // Procesar hijos si está expandido
-        if (node.isGroup && node.children) {
-          const childGroups = node.children.filter(c => c.isGroup);
-          console.log(`  → Tiene ${childGroups.length} grupos hijos`);
+        treeNode.width = treeNode.children.reduce((sum, child) => {
+          return sum + calculateSubtreeWidths(child);
+        }, 0);
 
-          if (isExpanded && childGroups.length > 0) {
-            console.log(`  → Procesando hijos porque está expandido`);
-            childGroups.forEach(child => {
-              traverse(child, level + 1, node.id);
-            });
-          } else if (!isExpanded && childGroups.length > 0) {
-            console.log(`  → NO procesando hijos porque NO está expandido`);
+        return treeNode.width;
+      };
+
+      // Paso 3: Algoritmo Reingold-Tilford para posicionamiento
+      const firstWalk = (treeNode, leftSibling = null) => {
+        if (treeNode.children.length === 0) {
+          // Nodo hoja
+          if (leftSibling) {
+            treeNode.prelim = leftSibling.prelim + 1;
+          } else {
+            treeNode.prelim = 0;
           }
+        } else {
+          // Nodo interno
+          let defaultAncestor = treeNode.children[0];
+
+          for (let i = 0; i < treeNode.children.length; i++) {
+            const child = treeNode.children[i];
+            firstWalk(child, i > 0 ? treeNode.children[i - 1] : null);
+            defaultAncestor = apportion(child, defaultAncestor);
+          }
+
+          executeShifts(treeNode);
+
+          const midpoint = (treeNode.children[0].prelim + treeNode.children[treeNode.children.length - 1].prelim) / 2;
+
+          if (leftSibling) {
+            treeNode.prelim = leftSibling.prelim + 1;
+            treeNode.mod = treeNode.prelim - midpoint;
+          } else {
+            treeNode.prelim = midpoint;
+          }
+        }
+
+        return treeNode;
+      };
+
+      const apportion = (v, defaultAncestor) => {
+        const w = getPreviousSibling(v);
+        if (w) {
+          let vip = v;
+          let vop = v;
+          let vim = w;
+          let vom = getLeftmost(vip);
+
+          let sip = vip.mod;
+          let sop = vop.mod;
+          let sim = vim.mod;
+          let som = vom.mod;
+
+          while (nextRight(vim) && nextLeft(vip)) {
+            vim = nextRight(vim);
+            vip = nextLeft(vip);
+            vom = nextLeft(vom);
+            vop = nextRight(vop);
+            vop.ancestor = v;
+
+            const shift = (vim.prelim + sim) - (vip.prelim + sip) + 1;
+            if (shift > 0) {
+              moveSubtree(ancestor(vim, v, defaultAncestor), v, shift);
+              sip += shift;
+              sop += shift;
+            }
+
+            sim += vim.mod;
+            sip += vip.mod;
+            som += vom.mod;
+            sop += vop.mod;
+          }
+
+          if (nextRight(vim) && !nextRight(vop)) {
+            vop.thread = nextRight(vim);
+            vop.mod += sim - sop;
+          }
+
+          if (nextLeft(vip) && !nextLeft(vom)) {
+            vom.thread = nextLeft(vip);
+            vom.mod += sip - som;
+            defaultAncestor = v;
+          }
+        }
+        return defaultAncestor;
+      };
+
+      const nextLeft = (node) => {
+        return node.children.length > 0 ? node.children[0] : node.thread;
+      };
+
+      const nextRight = (node) => {
+        return node.children.length > 0 ? node.children[node.children.length - 1] : node.thread;
+      };
+
+      const getPreviousSibling = (node) => {
+        if (!node.parentId) return null;
+        const parent = nodeLayoutInfo.get(node.parentId);
+        if (!parent) return null;
+        const index = parent.children.indexOf(node);
+        return index > 0 ? parent.children[index - 1] : null;
+      };
+
+      const getLeftmost = (node) => {
+        return node.children.length > 0 ? node.children[0] : node;
+      };
+
+      const ancestor = (vim, v, defaultAncestor) => {
+        if (vim.ancestor && v.parentId === vim.ancestor.parentId) {
+          return vim.ancestor;
+        }
+        return defaultAncestor;
+      };
+
+      const moveSubtree = (wm, wp, shift) => {
+        const subtrees = wp.prelim - wm.prelim;
+        if (subtrees === 0) return;
+
+        wp.change -= shift / subtrees;
+        wp.shift += shift;
+        wm.change += shift / subtrees;
+        wp.prelim += shift;
+        wp.mod += shift;
+      };
+
+      const executeShifts = (node) => {
+        let shift = 0;
+        let change = 0;
+        for (let i = node.children.length - 1; i >= 0; i--) {
+          const child = node.children[i];
+          child.prelim += shift;
+          child.mod += shift;
+          change += child.change;
+          shift += child.shift + change;
         }
       };
 
-      // PASO 1: Procesar todos los nodos raíz y agregar todos los nodos
-      console.log('\n📍 PASO 1: Agregando todos los nodos...');
-      tree.forEach(node => traverse(node));
+      const secondWalk = (treeNode, m = 0, depth = 0) => {
+        treeNode.x = treeNode.prelim + m;
+        treeNode.y = depth;
 
-      // PASO 2: Crear todas las conexiones (activar flag para ignorar eventos)
-      console.log(`\n🔗 PASO 2: Creando ${connections.length} conexiones...`);
+        nodeLayoutInfo.set(treeNode.id, treeNode);
+
+        for (const child of treeNode.children) {
+          secondWalk(child, m + treeNode.mod, depth + 1);
+        }
+      };
+
+      // Paso 4: Aplicar el layout a cada árbol raíz
+      const layoutTrees = (roots) => {
+        let globalOffsetX = 0;
+
+        roots.forEach((rootNode, rootIndex) => {
+          // Construir estructura de árbol
+          const treeRoot = buildTreeStructure(rootNode.node);
+          if (!treeRoot) return;
+
+          // Calcular anchos
+          calculateSubtreeWidths(treeRoot);
+
+          // Aplicar Reingold-Tilford
+          firstWalk(treeRoot);
+          secondWalk(treeRoot, globalOffsetX, 0);
+
+          // Actualizar offset para el siguiente árbol
+          globalOffsetX += treeRoot.width + (TREE_SPACING / NODE_WIDTH);
+        });
+      };
+
+      // Paso 5: Crear nodos en Drawflow con las posiciones calculadas
+      const createNodesAndConnections = () => {
+        console.log('\n📍 Creando nodos con posiciones calculadas...');
+
+        nodeLayoutInfo.forEach((layoutNode, nodeId) => {
+          const node = layoutNode.node;
+
+          // Convertir posiciones del layout a coordenadas de píxeles
+          const xPosition = layoutNode.x * NODE_WIDTH + 100;
+          const yPosition = layoutNode.y * VERTICAL_SPACING + 100;
+
+          const html = generateNodeHTML(node, layoutNode.parentId !== null);
+
+          const drawflowId = editor.addNode(
+            `node-${node.id}`,
+            1,
+            1,
+            xPosition,
+            yPosition,
+            `node-${node.id}`,
+            {},
+            html
+          );
+
+          nodeIdMap.set(node.id, drawflowId);
+
+          console.log(`  → Nodo ${node.name || node.keyword} en (${xPosition.toFixed(0)}, ${yPosition.toFixed(0)})`);
+
+          // Guardar conexión si tiene padre
+          if (layoutNode.parentId !== null) {
+            connections.push({
+              from: layoutNode.parentId,
+              to: node.id
+            });
+          }
+        });
+      };
+
+      // ========== EJECUTAR ALGORITMO DE LAYOUT ==========
+
+      // Preparar datos para el layout
+      const rootNodes = tree.map(node => ({ node }));
+
+      // PASO 1: Calcular layout con algoritmo Reingold-Tilford
+      console.log('\n📍 PASO 1: Calculando layout con algoritmo Reingold-Tilford...');
+      layoutTrees(rootNodes);
+
+      // PASO 2: Crear todos los nodos con posiciones calculadas
+      console.log('\n📍 PASO 2: Creando nodos con posiciones calculadas...');
+      createNodesAndConnections();
+
+      // PASO 3: Crear todas las conexiones (activar flag para ignorar eventos)
+      console.log(`\n🔗 PASO 3: Creando ${connections.length} conexiones...`);
       isRenderingRef.current = true; // Activar flag de renderizado
       connections.forEach(conn => {
         try {
-          const success = editor.addConnection(
-            conn.from,       // output_id
-            conn.to,         // input_id
-            'output_1',      // output_class
-            'input_1'        // input_class
-          );
-          console.log(`  ✓ Conexión creada: ${conn.from} -> ${conn.to} (${conn.parentName} -> ${conn.childName}) - Success: ${success}`);
+          const fromDrawflowId = nodeIdMap.get(conn.from);
+          const toDrawflowId = nodeIdMap.get(conn.to);
+
+          if (fromDrawflowId && toDrawflowId) {
+            const success = editor.addConnection(
+              fromDrawflowId,
+              toDrawflowId,
+              'output_1',
+              'input_1'
+            );
+            console.log(`  ✓ Conexión creada: ${conn.from} -> ${conn.to} - Success: ${success}`);
+          } else {
+            console.error(`  ✗ No se encontraron IDs de Drawflow para ${conn.from} -> ${conn.to}`);
+          }
         } catch (err) {
           console.error(`  ✗ Error al crear conexión ${conn.from} -> ${conn.to}:`, err);
-          console.error(`     Nodo ${conn.from} existe:`, !!editor.drawflow.drawflow.Home.data[conn.from]);
-          console.error(`     Nodo ${conn.to} existe:`, !!editor.drawflow.drawflow.Home.data[conn.to]);
         }
       });
 
