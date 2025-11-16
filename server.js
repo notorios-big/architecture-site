@@ -180,12 +180,12 @@ const removeJsonFences = (text) => {
 
 const loadNicheContext = () => {
   try {
-    const contextPath = path.join(__dirname, 'niche-context.json');
+    const contextPath = path.join(__dirname, 'niche-context.txt');
     if (fs.existsSync(contextPath)) {
-      return JSON.parse(fs.readFileSync(contextPath, 'utf8'));
+      return fs.readFileSync(contextPath, 'utf8');
     }
   } catch (error) {
-    console.warn('⚠️ No se pudo cargar niche-context.json:', error.message);
+    console.warn('⚠️ No se pudo cargar niche-context.txt:', error.message);
   }
   return null;
 };
@@ -215,9 +215,9 @@ app.post('/api/clean-groups', async (req, res) => {
     const nicheContext = loadNicheContext();
 
     if (nicheContext) {
-      console.log(`   ✓ Contexto del nicho cargado: ${nicheContext.nicho || 'desconocido'}`);
+      console.log(`   ✓ Contexto del nicho cargado desde niche-context.txt`);
     } else {
-      console.log(`   ⚠️ No se encontró niche-context.json, usando contexto genérico`);
+      console.log(`   ⚠️ No se encontró niche-context.txt, usando contexto genérico`);
     }
 
     // Preparar datos de grupos CON IDs y volúmenes de keywords
@@ -250,13 +250,7 @@ app.post('/api/clean-groups', async (req, res) => {
 
     const contextSection = nicheContext ? `
 CONTEXTO DEL NICHO:
-${JSON.stringify(nicheContext, null, 2)}
-
-Usa este contexto para entender:
-- Equivalencias de términos (ej: dupes = clones = réplicas)
-- Categorías principales del nicho
-- Reglas específicas de agrupación
-- Ejemplos de buenos y malos grupos
+${nicheContext}
 ` : '';
 
     const prompt = `Eres un experto en SEO y análisis de keywords. Tu tarea es LIMPIAR grupos de keywords, identificando palabras que NO pertenecen a cada grupo.
@@ -596,7 +590,7 @@ app.post('/api/classify-keywords-batch', async (req, res) => {
 
     const contextSection = nicheContext ? `
 CONTEXTO DEL NICHO:
-${JSON.stringify(nicheContext, null, 2)}
+${nicheContext}
 ` : '';
 
     // Preparar el batch para el LLM
@@ -761,7 +755,7 @@ app.post('/api/classify-keywords', async (req, res) => {
 
     const contextSection = nicheContext ? `
 CONTEXTO DEL NICHO:
-${JSON.stringify(nicheContext, null, 2)}
+${nicheContext}
 ` : '';
 
     const prompt = `Eres un experto en SEO. Debes clasificar una keyword en el grupo más apropiado semánticamente.
@@ -907,9 +901,7 @@ app.post('/api/generate-hierarchies', async (req, res) => {
 
     const contextSection = nicheContext ? `
 CONTEXTO DEL NICHO:
-${JSON.stringify(nicheContext, null, 2)}
-
-ESPECIALMENTE REVISA LA SECCIÓN: jerarquias_logicas
+${nicheContext}
 ` : '';
 
     const prompt = `Eres un experto en arquitectura de información y SEO. Debes crear conexiones padre-hijo entre grupos de keywords para crear una estructura jerárquica lógica.
@@ -1091,7 +1083,7 @@ app.post('/api/merge-groups', async (req, res) => {
 
     const contextSection = nicheContext ? `
 CONTEXTO DEL NICHO:
-${JSON.stringify(nicheContext, null, 2)}
+${nicheContext}
 ` : '';
 
     // Preparar datos de cliques para el LLM
