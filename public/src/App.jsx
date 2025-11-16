@@ -834,6 +834,7 @@ function App(){
 
             console.log(`      ✨ Nuevo grupo creado: "${kw.keyword}"`);
           }
+        }
 
         } catch (fetchErr) {
           clearTimeout(timeoutId);
