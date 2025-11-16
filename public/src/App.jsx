@@ -556,84 +556,79 @@ function App(){
         const result = await resp.json();
         const suggestions = result.suggestions;
 
-        // PASO 1: Recolectar keywords originales ANTES de eliminarlas (para preservar volúmenes)
-        const keywordMap = new Map(); // keywordId -> keyword object
-
-        if (suggestions.cleanedGroups) {
-          suggestions.cleanedGroups.forEach(cleaned => {
-            const group = batch[cleaned.groupIndex];
-            const groupIdx = updatedTree.findIndex(n => n.id === group.id);
-            if (groupIdx === -1) return;
-
-            const originalChildren = updatedTree[groupIdx].children || [];
-
-            // Guardar todas las keywords que serán removidas en el mapa
-            originalChildren.forEach(child => {
-              if (!child.isGroup) {
-                const kwText = child.keyword || child.name;
-                // Si NO está en keepKeywords, significa que será removida
-                if (!cleaned.keepKeywords.includes(kwText)) {
-                  keywordMap.set(child.id, child); // Guardar keyword completa con volumen
-                }
-              }
-            });
-          });
+        if (!suggestions.toClassify || suggestions.toClassify.length === 0) {
+          console.log(`   ✓ Batch ${i + 1}: No hay keywords para mover`);
+          continue;
         }
 
-        // PASO 2: Aplicar limpiezas (eliminar keywords de grupos)
-        if (suggestions.cleanedGroups) {
-          suggestions.cleanedGroups.forEach(cleaned => {
-            const group = batch[cleaned.groupIndex];
-            const groupIdx = updatedTree.findIndex(n => n.id === group.id);
-            if (groupIdx === -1) return;
+        // PASO 1: Crear Set de keywordIds que deben moverse
+        const keywordsToMoveIds = new Set(suggestions.toClassify.map(kw => kw.keywordId));
+        console.log(`   📊 Batch ${i + 1}: ${keywordsToMoveIds.size} keywords para mover a LLM-POR-CLASIFICAR`);
 
-            // Mantener solo las keywords válidas
-            const originalChildren = updatedTree[groupIdx].children || [];
-            const originalKeywordsCount = originalChildren.filter(c => !c.isGroup).length;
+        // PASO 2: Crear mapa de keywords originales (para preservar volúmenes)
+        const keywordMap = new Map();
 
-            const newChildren = originalChildren.filter(child => {
-              if (child.isGroup) return true;
-              const kwText = child.keyword || child.name;
-              return cleaned.keepKeywords.includes(kwText);
-            });
+        batch.forEach(group => {
+          const groupIdx = updatedTree.findIndex(n => n.id === group.id);
+          if (groupIdx === -1) return;
 
-            const keptKeywordsCount = newChildren.filter(c => !c.isGroup).length;
-            const removedCount = originalKeywordsCount - keptKeywordsCount;
-
-            console.log(`   📊 Grupo "${group.name}": ${keptKeywordsCount} mantenidas, ${removedCount} removidas`);
-
-            if (removedCount > 0) {
-              // Log de keywords removidas para depuración
-              const removedKeywords = originalChildren
-                .filter(c => !c.isGroup && !newChildren.includes(c))
-                .map(c => c.keyword || c.name);
-              console.log(`      → Keywords removidas:`, removedKeywords.slice(0, 5).join(', ') + (removedKeywords.length > 5 ? '...' : ''));
+          const originalChildren = updatedTree[groupIdx].children || [];
+          originalChildren.forEach(child => {
+            if (!child.isGroup && keywordsToMoveIds.has(child.id)) {
+              keywordMap.set(child.id, child); // Guardar keyword completa con volumen
             }
+          });
+        });
+
+        // PASO 3: Eliminar keywords de grupos y actualizar nombres
+        batch.forEach(group => {
+          const groupIdx = updatedTree.findIndex(n => n.id === group.id);
+          if (groupIdx === -1) return;
+
+          const originalChildren = updatedTree[groupIdx].children || [];
+          const originalKeywordsCount = originalChildren.filter(c => !c.isGroup).length;
+
+          // Filtrar eliminando las keywords que están en toClassify
+          const newChildren = originalChildren.filter(child => {
+            if (child.isGroup) return true; // Mantener subgrupos
+            return !keywordsToMoveIds.has(child.id); // Eliminar si está en toClassify
+          });
+
+          const keptKeywordsCount = newChildren.filter(c => !c.isGroup).length;
+          const removedCount = originalKeywordsCount - keptKeywordsCount;
+
+          if (removedCount > 0) {
+            console.log(`   📊 Grupo "${group.name}": ${keptKeywordsCount} mantenidas, ${removedCount} removidas`);
 
             // Calcular el nuevo título usando la keyword de mayor volumen
             const keywordsOnly = newChildren.filter(c => !c.isGroup);
-            const topKeyword = keywordsOnly.reduce((max, kw) => {
-              return (kw.volume || 0) > (max.volume || 0) ? kw : max;
-            }, keywordsOnly[0] || { keyword: group.name });
+            if (keywordsOnly.length > 0) {
+              const topKeyword = keywordsOnly.reduce((max, kw) => {
+                return (kw.volume || 0) > (max.volume || 0) ? kw : max;
+              }, keywordsOnly[0]);
 
-            updatedTree[groupIdx] = {
-              ...updatedTree[groupIdx],
-              name: topKeyword.keyword || group.name,
-              children: newChildren
-            };
-          });
-        }
+              updatedTree[groupIdx] = {
+                ...updatedTree[groupIdx],
+                name: topKeyword.keyword || group.name,
+                children: newChildren
+              };
+            } else {
+              // Si el grupo quedó sin keywords, solo actualizar children
+              updatedTree[groupIdx] = {
+                ...updatedTree[groupIdx],
+                children: newChildren
+              };
+            }
+          }
+        });
 
-        // PASO 3: Agregar keywords removidas a allKeywordsToClassify con su mapa para búsqueda posterior
-        if (suggestions.toClassify) {
-          suggestions.toClassify.forEach(kwData => {
-            // Agregar al array junto con el mapa para búsqueda
-            allKeywordsToClassify.push({
-              ...kwData,
-              _originalKeyword: keywordMap.get(kwData.keywordId) // Guardar referencia a keyword original
-            });
+        // PASO 4: Agregar keywords removidas a allKeywordsToClassify
+        suggestions.toClassify.forEach(kwData => {
+          allKeywordsToClassify.push({
+            ...kwData,
+            _originalKeyword: keywordMap.get(kwData.keywordId) // Guardar referencia a keyword original
           });
-        }
+        });
 
         if (i < batches.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
