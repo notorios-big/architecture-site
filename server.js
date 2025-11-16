@@ -622,11 +622,17 @@ Responde AHORA con el JSON (sin texto adicional):`;
 // Procesa múltiples keywords a la vez para mayor velocidad
 app.post('/api/classify-keywords-batch', async (req, res) => {
   try {
-    const { keywordsBatch } = req.body;
+    const { keywords, groups } = req.body;
 
-    if (!Array.isArray(keywordsBatch) || keywordsBatch.length === 0) {
+    if (!Array.isArray(keywords) || keywords.length === 0) {
       return res.status(400).json({
-        error: 'Se requiere un array de keywords con sus candidatos'
+        error: 'Se requiere un array de keywords'
+      });
+    }
+
+    if (!Array.isArray(groups) || groups.length === 0) {
+      return res.status(400).json({
+        error: 'Se requiere un array de grupos'
       });
     }
 
@@ -637,32 +643,49 @@ app.post('/api/classify-keywords-batch', async (req, res) => {
       });
     }
 
-    console.log(`\n🎯 Clasificando batch de ${keywordsBatch.length} keywords...`);
+    console.log(`\n🎯 Clasificando ${keywords.length} keywords en ${groups.length} grupos...`);
 
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
 
-    // Preparar el batch para el LLM
-    const batchData = keywordsBatch.map((item, idx) => ({
-      batchIndex: idx,
-      keywordId: item.keywordObj?.id || item.keywordId || `unknown-${idx}`,
-      keyword: item.keyword,
-      candidates: item.candidateGroups
+    // Preparar keywords (solo ID y texto)
+    const keywordsData = keywords.map(kw => ({
+      id: kw.id,
+      keyword: kw.keyword
     }));
 
-    // Debug: calcular tamaño del batch data
-    const batchDataStr = JSON.stringify(batchData, null, 2);
-    const batchDataTokens = Math.ceil(batchDataStr.length / 4); // Estimación aproximada
+    // Preparar grupos (ID, nombre y samples de keywords)
+    const groupsData = groups.map(group => ({
+      id: group.id,
+      name: group.name,
+      sampleKeywords: (group.children || [])
+        .filter(child => !child.isGroup)
+        .slice(0, 3) // 3 samples por grupo
+        .map(child => child.keyword || child.name)
+    }));
+
+    const requestData = {
+      keywords: keywordsData,
+      groups: groupsData
+    };
+
+    // Debug: calcular tamaño del request
+    const requestStr = JSON.stringify(requestData, null, 2);
+    const requestTokens = Math.ceil(requestStr.length / 4);
 
     console.log(`   📊 Debug de tokens:`);
-    console.log(`      - Keywords en batch: ${keywordsBatch.length}`);
-    console.log(`      - Candidatos totales: ${keywordsBatch.reduce((sum, kw) => sum + kw.candidateGroups.length, 0)}`);
-    console.log(`      - Caracteres batchData: ${batchDataStr.length.toLocaleString()}`);
-    console.log(`      - Tokens estimados batchData: ${batchDataTokens.toLocaleString()}`);
+    console.log(`      - Keywords: ${keywordsData.length}`);
+    console.log(`      - Grupos: ${groupsData.length}`);
+    console.log(`      - Caracteres request: ${requestStr.length.toLocaleString()}`);
+    console.log(`      - Tokens estimados: ${requestTokens.toLocaleString()}`);
 
-    const prompt = `Eres un experto en SEO. Debes clasificar MÚLTIPLES keywords en sus grupos más apropiados.
+    const prompt = `Eres un experto en SEO. Debes clasificar keywords en sus grupos más apropiados.
 
-Para cada keyword, analiza la intención de búsqueda y determina cuál grupo candidato es más apropiado.
+Recibirás:
+1. Una lista de KEYWORDS a clasificar (con id y keyword)
+2. Una lista de GRUPOS existentes (con id, name y ejemplos de keywords)
+
+Tu tarea: Para cada keyword, decide a qué grupo pertenece usando el ID del grupo.
 
 ⚠️ CRÍTICO - FORMATO DE RESPUESTA:
 Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
@@ -681,111 +704,79 @@ Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con
 EJEMPLO COMPLETO:
 
 Si recibieras este INPUT:
-[
-  {
-    "batchIndex": 0,
-    "keywordId": "kw-001",
-    "keyword": "dupe sauvage",
-    "candidates": [
-      {
-        "index": 0,
-        "name": "Dupe Sauvage Dior",
-        "similarity": 0.92,
-        "sampleKeywords": ["dupe sauvage dior", "clon sauvage"]
-      },
-      {
-        "index": 1,
-        "name": "Perfumes Amaderados Hombre",
-        "similarity": 0.68,
-        "sampleKeywords": ["perfumes amaderados hombre", "fragancias madera"]
-      }
-    ]
-  },
-  {
-    "batchIndex": 1,
-    "keywordId": "kw-002",
-    "keyword": "perfume floral mujer",
-    "candidates": [
-      {
-        "index": 0,
-        "name": "Perfumes Florales Mujer",
-        "similarity": 0.88,
-        "sampleKeywords": ["perfumes florales mujer", "fragancias florales"]
-      },
-      {
-        "index": 1,
-        "name": "Dupe La Vie Est Belle",
-        "similarity": 0.65,
-        "sampleKeywords": ["dupe la vie est belle", "clon la vie"]
-      }
-    ]
-  },
-  {
-    "batchIndex": 2,
-    "keywordId": "kw-003",
-    "keyword": "perfume amaderado dulce",
-    "candidates": [
-      {
-        "index": 0,
-        "name": "Perfumes Amaderados Hombre",
-        "similarity": 0.71,
-        "sampleKeywords": ["perfumes amaderados hombre", "fragancias madera"]
-      },
-      {
-        "index": 1,
-        "name": "Perfumes Dulces Mujer",
-        "similarity": 0.69,
-        "sampleKeywords": ["perfumes dulces mujer", "fragancias dulces"]
-      }
-    ]
-  }
-]
+{
+  "keywords": [
+    { "id": "kw-001", "keyword": "dupe sauvage" },
+    { "id": "kw-002", "keyword": "perfume floral mujer" },
+    { "id": "kw-003", "keyword": "perfume amaderado dulce" }
+  ],
+  "groups": [
+    {
+      "id": "group-101",
+      "name": "Dupe Sauvage Dior",
+      "sampleKeywords": ["dupe sauvage dior", "clon sauvage", "replica sauvage"]
+    },
+    {
+      "id": "group-102",
+      "name": "Perfumes Florales Mujer",
+      "sampleKeywords": ["perfumes florales mujer", "fragancias florales", "perfume flores"]
+    },
+    {
+      "id": "group-103",
+      "name": "Perfumes Amaderados Hombre",
+      "sampleKeywords": ["perfumes amaderados hombre", "fragancias madera", "perfume amaderado"]
+    },
+    {
+      "id": "group-104",
+      "name": "Perfumes Dulces Mujer",
+      "sampleKeywords": ["perfumes dulces mujer", "fragancias dulces", "perfume dulce"]
+    }
+  ]
+}
 
 Deberías entregar este OUTPUT:
 {
   "classifications": [
     {
       "keywordId": "kw-001",
-      "selectedGroupIndex": 0
+      "groupId": "group-101"
     },
     {
       "keywordId": "kw-002",
-      "selectedGroupIndex": 0
+      "groupId": "group-102"
     },
     {
       "keywordId": "kw-003",
-      "selectedGroupIndex": -1
+      "groupId": null
     }
   ]
 }
 
 EXPLICACIÓN DEL EJEMPLO:
-- kw-001 "dupe sauvage" → grupo 0 ("Dupe Sauvage Dior") porque coincide perfectamente
-- kw-002 "perfume floral mujer" → grupo 0 ("Perfumes Florales Mujer") porque es la categoría correcta
-- kw-003 "perfume amaderado dulce" → -1 (nuevo grupo) porque mezcla dos características diferentes
+- kw-001 "dupe sauvage" → group-101 ("Dupe Sauvage Dior") porque coincide perfectamente
+- kw-002 "perfume floral mujer" → group-102 ("Perfumes Florales Mujer") porque es la categoría correcta
+- kw-003 "perfume amaderado dulce" → null (nuevo grupo) porque mezcla dos características diferentes
 
 REGLAS:
-- Devuelve una clasificación por cada keyword en el batch
-- Cada clasificación tiene SOLO 2 campos: keywordId y selectedGroupIndex
-- selectedGroupIndex: índice del grupo candidato elegido (0, 1, 2...), o -1 si ninguno es apropiado
-- Si selectedGroupIndex es -1, el sistema creará automáticamente un grupo nuevo con el nombre de la keyword
-- NO incluyas otros campos (batchIndex, confidence, reason, suggestedGroupName, etc.)
-- El keywordId debe coincidir EXACTAMENTE con el que recibiste en el input
+- Devuelve una clasificación por cada keyword
+- Cada clasificación tiene SOLO 2 campos: keywordId y groupId
+- groupId: ID del grupo elegido (ej: "group-101"), o null si ninguno es apropiado
+- Si groupId es null, el sistema creará automáticamente un grupo nuevo con el nombre de la keyword
+- NO incluyas otros campos (confidence, reason, suggestedGroupName, etc.)
+- Los IDs deben coincidir EXACTAMENTE con los que recibiste en el input
 
-AHORA CLASIFICA ESTE BATCH:
-${batchDataStr}
+AHORA CLASIFICA ESTAS KEYWORDS:
+${requestStr}
 
 Responde SOLO con el JSON (sin texto adicional):`;
 
-    // Log del prompt (solo el primer item del batch para referencia)
-    if (keywordsBatch.length > 0) {
-      console.log(`\n📝 PROMPT (PASO 4 - Clasificar batch):`);
-      console.log('─'.repeat(80));
-      console.log(`Primera keyword del batch: "${keywordsBatch[0].keyword}"`);
-      console.log(`Candidatos: ${keywordsBatch[0].candidateGroups.length}`);
-      console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
-      console.log('─'.repeat(80));
-    }
+    // Log del prompt
+    console.log(`\n📝 PROMPT (PASO 4 - Clasificar batch):`);
+    console.log('─'.repeat(80));
+    console.log(`Keywords a clasificar: ${keywordsData.length}`);
+    console.log(`Grupos disponibles: ${groupsData.length}`);
+    console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
+    console.log('─'.repeat(80));
 
     // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
