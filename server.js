@@ -622,11 +622,17 @@ Responde AHORA con el JSON (sin texto adicional):`;
 // Procesa múltiples keywords a la vez para mayor velocidad
 app.post('/api/classify-keywords-batch', async (req, res) => {
   try {
-    const { keywordsBatch } = req.body;
+    const { keywords, groups } = req.body;
 
-    if (!Array.isArray(keywordsBatch) || keywordsBatch.length === 0) {
+    if (!Array.isArray(keywords) || keywords.length === 0) {
       return res.status(400).json({
-        error: 'Se requiere un array de keywords con sus candidatos'
+        error: 'Se requiere un array de keywords'
+      });
+    }
+
+    if (!Array.isArray(groups) || groups.length === 0) {
+      return res.status(400).json({
+        error: 'Se requiere un array de grupos'
       });
     }
 
@@ -637,34 +643,49 @@ app.post('/api/classify-keywords-batch', async (req, res) => {
       });
     }
 
-    console.log(`\n🎯 Clasificando batch de ${keywordsBatch.length} keywords...`);
+    console.log(`\n🎯 Clasificando ${keywords.length} keywords en ${groups.length} grupos...`);
 
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
 
-    // Preparar el batch para el LLM
-    const batchData = keywordsBatch.map((item, idx) => ({
-      batchIndex: idx,
-      keyword: item.keyword,
-      candidates: item.candidateGroups
+    // Preparar keywords (solo ID y texto)
+    const keywordsData = keywords.map(kw => ({
+      id: kw.id,
+      keyword: kw.keyword
     }));
 
-    // Debug: calcular tamaño del batch data
-    const batchDataStr = JSON.stringify(batchData, null, 2);
-    const batchDataTokens = Math.ceil(batchDataStr.length / 4); // Estimación aproximada
+    // Preparar grupos (ID, nombre y samples de keywords)
+    const groupsData = groups.map(group => ({
+      id: group.id,
+      name: group.name,
+      sampleKeywords: (group.children || [])
+        .filter(child => !child.isGroup)
+        .slice(0, 3) // 3 samples por grupo
+        .map(child => child.keyword || child.name)
+    }));
+
+    const requestData = {
+      keywords: keywordsData,
+      groups: groupsData
+    };
+
+    // Debug: calcular tamaño del request
+    const requestStr = JSON.stringify(requestData, null, 2);
+    const requestTokens = Math.ceil(requestStr.length / 4);
 
     console.log(`   📊 Debug de tokens:`);
-    console.log(`      - Keywords en batch: ${keywordsBatch.length}`);
-    console.log(`      - Candidatos totales: ${keywordsBatch.reduce((sum, kw) => sum + kw.candidateGroups.length, 0)}`);
-    console.log(`      - Caracteres batchData: ${batchDataStr.length.toLocaleString()}`);
-    console.log(`      - Tokens estimados batchData: ${batchDataTokens.toLocaleString()}`);
+    console.log(`      - Keywords: ${keywordsData.length}`);
+    console.log(`      - Grupos: ${groupsData.length}`);
+    console.log(`      - Caracteres request: ${requestStr.length.toLocaleString()}`);
+    console.log(`      - Tokens estimados: ${requestTokens.toLocaleString()}`);
 
-    const prompt = `Eres un experto en SEO. Debes clasificar MÚLTIPLES keywords en sus grupos más apropiados.
+    const prompt = `Eres un experto en SEO. Debes clasificar keywords en sus grupos más apropiados.
 
-KEYWORDS A CLASIFICAR (BATCH):
-${batchDataStr}
+Recibirás:
+1. Una lista de KEYWORDS a clasificar (con id y keyword)
+2. Una lista de GRUPOS existentes (con id, name y ejemplos de keywords)
 
-Para cada keyword, analiza la intención de búsqueda y determina cuál grupo candidato es más apropiado.
+Tu tarea: Para cada keyword, decide a qué grupo pertenece usando el ID del grupo.
 
 ⚠️ CRÍTICO - FORMATO DE RESPUESTA:
 Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
@@ -680,42 +701,82 @@ NO incluyas:
 
 Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
-FORMATO DE RESPUESTA:
+EJEMPLO COMPLETO:
+
+Si recibieras este INPUT:
 {
-  "classifications": [
+  "keywords": [
+    { "id": "kw-001", "keyword": "dupe sauvage" },
+    { "id": "kw-002", "keyword": "perfume floral mujer" },
+    { "id": "kw-003", "keyword": "perfume amaderado dulce" }
+  ],
+  "groups": [
     {
-      "batchIndex": 0,
-      "selectedGroupIndex": 2,
-      "confidence": 0.85,
-      "reason": "La keyword busca dupes de Good Girl, coincide perfectamente con el grupo"
+      "id": "group-101",
+      "name": "Dupe Sauvage Dior",
+      "sampleKeywords": ["dupe sauvage dior", "clon sauvage", "replica sauvage"]
     },
     {
-      "batchIndex": 1,
-      "selectedGroupIndex": -1,
-      "confidence": 0.9,
-      "reason": "Esta keyword busca un producto diferente, requiere grupo nuevo",
-      "suggestedGroupName": "Dupe Sauvage Dior"
+      "id": "group-102",
+      "name": "Perfumes Florales Mujer",
+      "sampleKeywords": ["perfumes florales mujer", "fragancias florales", "perfume flores"]
+    },
+    {
+      "id": "group-103",
+      "name": "Perfumes Amaderados Hombre",
+      "sampleKeywords": ["perfumes amaderados hombre", "fragancias madera", "perfume amaderado"]
+    },
+    {
+      "id": "group-104",
+      "name": "Perfumes Dulces Mujer",
+      "sampleKeywords": ["perfumes dulces mujer", "fragancias dulces", "perfume dulce"]
     }
   ]
 }
 
-REGLAS:
-- Devuelve una clasificación por cada keyword en el batch
-- selectedGroupIndex: índice del grupo candidato elegido, o -1 si ninguno es apropiado
-- Si selectedGroupIndex es -1, incluye suggestedGroupName para crear nuevo grupo
-- Mantén el batchIndex para mapear cada respuesta a su keyword original
-
-Responde AHORA con el JSON (sin texto adicional):`;
-
-    // Log del prompt (solo el primer item del batch para referencia)
-    if (keywordsBatch.length > 0) {
-      console.log(`\n📝 PROMPT (PASO 4 - Clasificar batch):`);
-      console.log('─'.repeat(80));
-      console.log(`Primera keyword del batch: "${keywordsBatch[0].keyword}"`);
-      console.log(`Candidatos: ${keywordsBatch[0].candidateGroups.length}`);
-      console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
-      console.log('─'.repeat(80));
+Deberías entregar este OUTPUT:
+{
+  "classifications": [
+    {
+      "keywordId": "kw-001",
+      "groupId": "group-101"
+    },
+    {
+      "keywordId": "kw-002",
+      "groupId": "group-102"
+    },
+    {
+      "keywordId": "kw-003",
+      "groupId": null
     }
+  ]
+}
+
+EXPLICACIÓN DEL EJEMPLO:
+- kw-001 "dupe sauvage" → group-101 ("Dupe Sauvage Dior") porque coincide perfectamente
+- kw-002 "perfume floral mujer" → group-102 ("Perfumes Florales Mujer") porque es la categoría correcta
+- kw-003 "perfume amaderado dulce" → null (nuevo grupo) porque mezcla dos características diferentes
+
+REGLAS:
+- Devuelve una clasificación por cada keyword
+- Cada clasificación tiene SOLO 2 campos: keywordId y groupId
+- groupId: ID del grupo elegido (ej: "group-101"), o null si ninguno es apropiado
+- Si groupId es null, el sistema creará automáticamente un grupo nuevo con el nombre de la keyword
+- NO incluyas otros campos (confidence, reason, suggestedGroupName, etc.)
+- Los IDs deben coincidir EXACTAMENTE con los que recibiste en el input
+
+AHORA CLASIFICA ESTAS KEYWORDS:
+${requestStr}
+
+Responde SOLO con el JSON (sin texto adicional):`;
+
+    // Log del prompt
+    console.log(`\n📝 PROMPT (PASO 4 - Clasificar batch):`);
+    console.log('─'.repeat(80));
+    console.log(`Keywords a clasificar: ${keywordsData.length}`);
+    console.log(`Grupos disponibles: ${groupsData.length}`);
+    console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
+    console.log('─'.repeat(80));
 
     // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
