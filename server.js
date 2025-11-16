@@ -678,48 +678,104 @@ NO incluyas:
 
 Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
-FORMATO DE RESPUESTA:
-{
-  "classifications": [
-    {
-      "keywordId": "kw-xxx",
-      "selectedGroupIndex": 2
-    },
-    {
-      "keywordId": "kw-yyy",
-      "selectedGroupIndex": -1
-    }
-  ]
-}
-
 EJEMPLO COMPLETO:
 
-INPUT que recibes:
-${batchDataStr}
+Si recibieras este INPUT:
+[
+  {
+    "batchIndex": 0,
+    "keywordId": "kw-001",
+    "keyword": "dupe sauvage",
+    "candidates": [
+      {
+        "index": 0,
+        "name": "Dupe Sauvage Dior",
+        "similarity": 0.92,
+        "sampleKeywords": ["dupe sauvage dior", "clon sauvage"]
+      },
+      {
+        "index": 1,
+        "name": "Perfumes Amaderados Hombre",
+        "similarity": 0.68,
+        "sampleKeywords": ["perfumes amaderados hombre", "fragancias madera"]
+      }
+    ]
+  },
+  {
+    "batchIndex": 1,
+    "keywordId": "kw-002",
+    "keyword": "perfume floral mujer",
+    "candidates": [
+      {
+        "index": 0,
+        "name": "Perfumes Florales Mujer",
+        "similarity": 0.88,
+        "sampleKeywords": ["perfumes florales mujer", "fragancias florales"]
+      },
+      {
+        "index": 1,
+        "name": "Dupe La Vie Est Belle",
+        "similarity": 0.65,
+        "sampleKeywords": ["dupe la vie est belle", "clon la vie"]
+      }
+    ]
+  },
+  {
+    "batchIndex": 2,
+    "keywordId": "kw-003",
+    "keyword": "perfume amaderado dulce",
+    "candidates": [
+      {
+        "index": 0,
+        "name": "Perfumes Amaderados Hombre",
+        "similarity": 0.71,
+        "sampleKeywords": ["perfumes amaderados hombre", "fragancias madera"]
+      },
+      {
+        "index": 1,
+        "name": "Perfumes Dulces Mujer",
+        "similarity": 0.69,
+        "sampleKeywords": ["perfumes dulces mujer", "fragancias dulces"]
+      }
+    ]
+  }
+]
 
-OUTPUT que debes entregar:
+Deberías entregar este OUTPUT:
 {
   "classifications": [
     {
-      "keywordId": "${keywordsBatch[0]?.keywordObj?.id || 'kw-001'}",
+      "keywordId": "kw-001",
       "selectedGroupIndex": 0
     },
     {
-      "keywordId": "${keywordsBatch[1]?.keywordObj?.id || 'kw-002'}",
+      "keywordId": "kw-002",
+      "selectedGroupIndex": 0
+    },
+    {
+      "keywordId": "kw-003",
       "selectedGroupIndex": -1
     }
   ]
 }
+
+EXPLICACIÓN DEL EJEMPLO:
+- kw-001 "dupe sauvage" → grupo 0 ("Dupe Sauvage Dior") porque coincide perfectamente
+- kw-002 "perfume floral mujer" → grupo 0 ("Perfumes Florales Mujer") porque es la categoría correcta
+- kw-003 "perfume amaderado dulce" → -1 (nuevo grupo) porque mezcla dos características diferentes
 
 REGLAS:
 - Devuelve una clasificación por cada keyword en el batch
 - Cada clasificación tiene SOLO 2 campos: keywordId y selectedGroupIndex
 - selectedGroupIndex: índice del grupo candidato elegido (0, 1, 2...), o -1 si ninguno es apropiado
 - Si selectedGroupIndex es -1, el sistema creará automáticamente un grupo nuevo con el nombre de la keyword
-- NO incluyas otros campos (confidence, reason, suggestedGroupName, etc.)
+- NO incluyas otros campos (batchIndex, confidence, reason, suggestedGroupName, etc.)
 - El keywordId debe coincidir EXACTAMENTE con el que recibiste en el input
 
-Responde AHORA con el JSON (sin texto adicional):`;
+AHORA CLASIFICA ESTE BATCH:
+${batchDataStr}
+
+Responde SOLO con el JSON (sin texto adicional):`;
 
     // Log del prompt (solo el primer item del batch para referencia)
     if (keywordsBatch.length > 0) {
