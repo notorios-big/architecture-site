@@ -502,14 +502,6 @@ function App(){
     setError('');
 
     try {
-      const batchSize = 50;
-      const batches = [];
-      for (let i = 0; i < onlyGroups.length; i += batchSize) {
-        batches.push(onlyGroups.slice(i, i + batchSize));
-      }
-
-      console.log(`🧹 Limpiando ${onlyGroups.length} grupos en ${batches.length} batches de ${batchSize}...`);
-
       // Contar keywords totales al inicio
       const initialKeywordCount = onlyGroups.reduce((count, g) => {
         return count + (g.children || []).filter(c => !c.isGroup).length;
@@ -519,119 +511,179 @@ function App(){
       let allKeywordsToClassify = [];
       let updatedTree = [...tree];
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        setProgressInfo({ show: true, current: i + 1, total: batches.length, message: 'Limpiando grupos' });
-        setSuccess(`Limpiando batch ${i + 1}/${batches.length}...`);
+      // ============================================================
+      // PASO 2A: MOVER GRUPOS DE UNA SOLA PALABRA A LLM-POR-CLASIFICAR
+      // ============================================================
+      const singleKeywordGroups = onlyGroups.filter(group => {
+        const keywords = (group.children || []).filter(c => !c.isGroup);
+        return keywords.length === 1;
+      });
 
-        const batchData = batch.map(group => ({
-          id: group.id,
-          name: group.name,
-          volume: nodeVolume(group),
-          keywords: (group.children || [])
-            .filter(child => !child.isGroup)
-            .map(child => ({
-              id: child.id, // Enviar ID de la keyword
-              keyword: child.keyword || child.name,
-              volume: child.volume || 0
-            }))
-        }));
+      const multiKeywordGroups = onlyGroups.filter(group => {
+        const keywords = (group.children || []).filter(c => !c.isGroup);
+        return keywords.length > 1;
+      });
 
-        const resp = await fetch(`${serverBase}/api/clean-groups`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            groups: batchData,
-            batchIndex: i,
-            totalBatches: batches.length
-          })
-        });
+      console.log(`\n🔍 PASO 2A: Procesando grupos de una sola keyword`);
+      console.log(`   - Grupos de 1 keyword: ${singleKeywordGroups.length}`);
+      console.log(`   - Grupos de 2+ keywords: ${multiKeywordGroups.length}`);
 
-        if (!resp.ok) {
-          let msg = 'HTTP ' + resp.status;
-          try { const e = await resp.json(); msg = e?.error || msg; } catch {}
-          throw new Error('Error al limpiar grupos: ' + msg);
-        }
+      if (singleKeywordGroups.length > 0) {
+        setProgressInfo({ show: true, current: 1, total: 2, message: 'Moviendo grupos de una sola palabra' });
 
-        const result = await resp.json();
-        const suggestions = result.suggestions;
+        // Extraer las keywords de los grupos de una sola palabra
+        singleKeywordGroups.forEach(group => {
+          const keyword = (group.children || []).find(c => !c.isGroup);
+          if (keyword) {
+            console.log(`   📤 Moviendo "${keyword.keyword}" (volumen: ${keyword.volume}) a LLM-POR-CLASIFICAR`);
+            allKeywordsToClassify.push({
+              keywordId: keyword.id,
+              keyword: keyword.keyword,
+              volume: keyword.volume || 0,
+              _originalKeyword: keyword
+            });
+          }
 
-        if (!suggestions.toClassify || suggestions.toClassify.length === 0) {
-          console.log(`   ✓ Batch ${i + 1}: No hay keywords para mover`);
-          continue;
-        }
-
-        // PASO 1: Crear Set de keywordIds que deben moverse
-        const keywordsToMoveIds = new Set(suggestions.toClassify.map(kw => kw.keywordId));
-        console.log(`   📊 Batch ${i + 1}: ${keywordsToMoveIds.size} keywords para mover a LLM-POR-CLASIFICAR`);
-
-        // PASO 2: Crear mapa de keywords originales (para preservar volúmenes)
-        const keywordMap = new Map();
-
-        batch.forEach(group => {
+          // Eliminar el grupo del árbol
           const groupIdx = updatedTree.findIndex(n => n.id === group.id);
-          if (groupIdx === -1) return;
-
-          const originalChildren = updatedTree[groupIdx].children || [];
-          originalChildren.forEach(child => {
-            if (!child.isGroup && keywordsToMoveIds.has(child.id)) {
-              keywordMap.set(child.id, child); // Guardar keyword completa con volumen
-            }
-          });
-        });
-
-        // PASO 3: Eliminar keywords de grupos y actualizar nombres
-        batch.forEach(group => {
-          const groupIdx = updatedTree.findIndex(n => n.id === group.id);
-          if (groupIdx === -1) return;
-
-          const originalChildren = updatedTree[groupIdx].children || [];
-          const originalKeywordsCount = originalChildren.filter(c => !c.isGroup).length;
-
-          // Filtrar eliminando las keywords que están en toClassify
-          const newChildren = originalChildren.filter(child => {
-            if (child.isGroup) return true; // Mantener subgrupos
-            return !keywordsToMoveIds.has(child.id); // Eliminar si está en toClassify
-          });
-
-          const keptKeywordsCount = newChildren.filter(c => !c.isGroup).length;
-          const removedCount = originalKeywordsCount - keptKeywordsCount;
-
-          if (removedCount > 0) {
-            console.log(`   📊 Grupo "${group.name}": ${keptKeywordsCount} mantenidas, ${removedCount} removidas`);
-
-            // Calcular el nuevo título usando la keyword de mayor volumen
-            const keywordsOnly = newChildren.filter(c => !c.isGroup);
-            if (keywordsOnly.length > 0) {
-              const topKeyword = keywordsOnly.reduce((max, kw) => {
-                return (kw.volume || 0) > (max.volume || 0) ? kw : max;
-              }, keywordsOnly[0]);
-
-              updatedTree[groupIdx] = {
-                ...updatedTree[groupIdx],
-                name: topKeyword.keyword || group.name,
-                children: newChildren
-              };
-            } else {
-              // Si el grupo quedó sin keywords, solo actualizar children
-              updatedTree[groupIdx] = {
-                ...updatedTree[groupIdx],
-                children: newChildren
-              };
-            }
+          if (groupIdx !== -1) {
+            updatedTree.splice(groupIdx, 1);
           }
         });
 
-        // PASO 4: Agregar keywords removidas a allKeywordsToClassify
-        suggestions.toClassify.forEach(kwData => {
-          allKeywordsToClassify.push({
-            ...kwData,
-            _originalKeyword: keywordMap.get(kwData.keywordId) // Guardar referencia a keyword original
-          });
-        });
+        console.log(`   ✅ ${singleKeywordGroups.length} grupos de una sola palabra movidos a LLM-POR-CLASIFICAR`);
+      }
 
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+      // ============================================================
+      // PASO 2B: LIMPIAR GRUPOS MULTI-KEYWORD CON IA
+      // ============================================================
+      if (multiKeywordGroups.length === 0) {
+        console.log(`\n✅ No hay grupos multi-keyword para limpiar con IA`);
+      } else {
+        console.log(`\n🧹 PASO 2B: Limpiando ${multiKeywordGroups.length} grupos multi-keyword con IA...`);
+
+        const batchSize = 50;
+        const batches = [];
+        for (let i = 0; i < multiKeywordGroups.length; i += batchSize) {
+          batches.push(multiKeywordGroups.slice(i, i + batchSize));
+        }
+
+        console.log(`   Procesando en ${batches.length} batches de ${batchSize}...`);
+
+        for (let i = 0; i < batches.length; i++) {
+          const batch = batches[i];
+          setProgressInfo({ show: true, current: 1, total: 2, message: `Limpiando grupos con IA (${i + 1}/${batches.length})` });
+          setSuccess(`[PASO 2B] Limpiando batch ${i + 1}/${batches.length}...`);
+
+          const batchData = batch.map(group => ({
+            id: group.id,
+            name: group.name,
+            volume: nodeVolume(group),
+            keywords: (group.children || [])
+              .filter(child => !child.isGroup)
+              .map(child => ({
+                id: child.id, // Enviar ID de la keyword
+                keyword: child.keyword || child.name,
+                volume: child.volume || 0
+              }))
+          }));
+
+          const resp = await fetch(`${serverBase}/api/clean-groups`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              groups: batchData,
+              batchIndex: i,
+              totalBatches: batches.length
+            })
+          });
+
+          if (!resp.ok) {
+            let msg = 'HTTP ' + resp.status;
+            try { const e = await resp.json(); msg = e?.error || msg; } catch {}
+            throw new Error('Error al limpiar grupos: ' + msg);
+          }
+
+          const result = await resp.json();
+          const suggestions = result.suggestions;
+
+          if (!suggestions.toClassify || suggestions.toClassify.length === 0) {
+            console.log(`   ✓ Batch ${i + 1}: No hay keywords para mover`);
+            continue;
+          }
+
+          // PASO 1: Crear Set de keywordIds que deben moverse
+          const keywordsToMoveIds = new Set(suggestions.toClassify.map(kw => kw.keywordId));
+          console.log(`   📊 Batch ${i + 1}: ${keywordsToMoveIds.size} keywords para mover a LLM-POR-CLASIFICAR`);
+
+          // PASO 2: Crear mapa de keywords originales (para preservar volúmenes)
+          const keywordMap = new Map();
+
+          batch.forEach(group => {
+            const groupIdx = updatedTree.findIndex(n => n.id === group.id);
+            if (groupIdx === -1) return;
+
+            const originalChildren = updatedTree[groupIdx].children || [];
+            originalChildren.forEach(child => {
+              if (!child.isGroup && keywordsToMoveIds.has(child.id)) {
+                keywordMap.set(child.id, child); // Guardar keyword completa con volumen
+              }
+            });
+          });
+
+          // PASO 3: Eliminar keywords de grupos y actualizar nombres
+          batch.forEach(group => {
+            const groupIdx = updatedTree.findIndex(n => n.id === group.id);
+            if (groupIdx === -1) return;
+
+            const originalChildren = updatedTree[groupIdx].children || [];
+            const originalKeywordsCount = originalChildren.filter(c => !c.isGroup).length;
+
+            // Filtrar eliminando las keywords que están en toClassify
+            const newChildren = originalChildren.filter(child => {
+              if (child.isGroup) return true; // Mantener subgrupos
+              return !keywordsToMoveIds.has(child.id); // Eliminar si está en toClassify
+            });
+
+            const keptKeywordsCount = newChildren.filter(c => !c.isGroup).length;
+            const removedCount = originalKeywordsCount - keptKeywordsCount;
+
+            if (removedCount > 0) {
+              console.log(`   📊 Grupo "${group.name}": ${keptKeywordsCount} mantenidas, ${removedCount} removidas`);
+
+              // Calcular el nuevo título usando la keyword de mayor volumen
+              const keywordsOnly = newChildren.filter(c => !c.isGroup);
+              if (keywordsOnly.length > 0) {
+                const topKeyword = keywordsOnly.reduce((max, kw) => {
+                  return (kw.volume || 0) > (max.volume || 0) ? kw : max;
+                }, keywordsOnly[0]);
+
+                updatedTree[groupIdx] = {
+                  ...updatedTree[groupIdx],
+                  name: topKeyword.keyword || group.name,
+                  children: newChildren
+                };
+              } else {
+                // Si el grupo quedó sin keywords, solo actualizar children
+                updatedTree[groupIdx] = {
+                  ...updatedTree[groupIdx],
+                  children: newChildren
+                };
+              }
+            }
+          });
+
+          // PASO 4: Agregar keywords removidas a allKeywordsToClassify
+          suggestions.toClassify.forEach(kwData => {
+            allKeywordsToClassify.push({
+              ...kwData,
+              _originalKeyword: keywordMap.get(kwData.keywordId) // Guardar referencia a keyword original
+            });
+          });
+
+          if (i < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         }
       }
 
@@ -710,7 +762,7 @@ function App(){
       }
 
       setTree(sortedTree);
-      setSuccess(`Limpieza completada. ${allKeywordsToClassify.length} keywords movidas a LLM-POR-CLASIFICAR`);
+      setSuccess(`Limpieza completada. ${singleKeywordGroups.length} grupos de 1 keyword + keywords de limpieza IA = ${allKeywordsToClassify.length} keywords movidas a LLM-POR-CLASIFICAR`);
     } catch (err) {
       setError('Error al limpiar grupos: ' + (err?.message || String(err)));
     } finally {
