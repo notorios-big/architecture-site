@@ -194,6 +194,12 @@ const loadNicheContext = () => {
 // Soporta prompt caching mediante system messages
 const createMessageWithStreaming = async (anthropic, params) => {
   let fullText = '';
+  let usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0
+  };
 
   const stream = await anthropic.messages.stream({
     ...params,
@@ -204,11 +210,21 @@ const createMessageWithStreaming = async (anthropic, params) => {
     if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
       fullText += event.delta.text;
     }
+    // Capturar datos de uso de tokens (incluye prompt caching)
+    if (event.type === 'message_start' && event.message?.usage) {
+      usage.input_tokens = event.message.usage.input_tokens || 0;
+      usage.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens || 0;
+      usage.cache_read_input_tokens = event.message.usage.cache_read_input_tokens || 0;
+    }
+    if (event.type === 'message_delta' && event.usage) {
+      usage.output_tokens = event.usage.output_tokens || 0;
+    }
   }
 
   // Retornar en el mismo formato que messages.create() sin streaming
   return {
-    content: [{ text: fullText }]
+    content: [{ text: fullText }],
+    usage: usage
   };
 };
 
@@ -576,6 +592,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
     console.log('   - Grupos limpiados:', cleaningSuggestions.cleanedGroups?.length || 0);
     console.log('   - Keywords a clasificar:', cleaningSuggestions.toClassify?.length || 0);
     console.log('   - Respuesta:', `${responseText.length} caracteres`);
+    console.log(`   💰 Tokens: in=${message.usage.input_tokens} out=${message.usage.output_tokens}` +
+      (message.usage.cache_read_input_tokens ? ` cache_read=${message.usage.cache_read_input_tokens} ✅` : '') +
+      (message.usage.cache_creation_input_tokens ? ` cache_create=${message.usage.cache_creation_input_tokens}` : ''));
 
     res.json({
       success: true,
@@ -583,7 +602,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       suggestions: cleaningSuggestions,
       usage: {
         inputTokens: message.usage.input_tokens,
-        outputTokens: message.usage.output_tokens
+        outputTokens: message.usage.output_tokens,
+        cacheCreationTokens: message.usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: message.usage.cache_read_input_tokens || 0
       }
     });
 
@@ -739,7 +760,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       classifications: batchClassification.classifications,
       usage: {
         inputTokens: message.usage.input_tokens,
-        outputTokens: message.usage.output_tokens
+        outputTokens: message.usage.output_tokens,
+        cacheCreationTokens: message.usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: message.usage.cache_read_input_tokens || 0
       }
     });
 
@@ -873,7 +896,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       classification,
       usage: {
         inputTokens: message.usage.input_tokens,
-        outputTokens: message.usage.output_tokens
+        outputTokens: message.usage.output_tokens,
+        cacheCreationTokens: message.usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: message.usage.cache_read_input_tokens || 0
       }
     });
 
@@ -1047,7 +1072,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       suggestions: hierarchySuggestions,
       usage: {
         inputTokens: message.usage.input_tokens,
-        outputTokens: message.usage.output_tokens
+        outputTokens: message.usage.output_tokens,
+        cacheCreationTokens: message.usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: message.usage.cache_read_input_tokens || 0
       }
     });
 
@@ -1294,7 +1321,9 @@ Responde AHORA con el JSON (sin texto adicional):`;
       merges,
       usage: {
         inputTokens: message.usage.input_tokens,
-        outputTokens: message.usage.output_tokens
+        outputTokens: message.usage.output_tokens,
+        cacheCreationTokens: message.usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: message.usage.cache_read_input_tokens || 0
       }
     });
 
