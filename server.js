@@ -240,7 +240,7 @@ OBJETIVO:
 2. Esas keywords "huérfanas" deben moverse al grupo "LLM-POR-CLASIFICAR"
 3. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
    - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
-   - "dupe good girl" → URL diferente a "dupe 212 vip"
+   - "dupe de mujer" → URL diferente a "dupe 212 vip"
    - Solo agrupa keywords que podrían responderse en la MISMA landing page
 4. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
 5. IMPORTANTE: NO cambies ni sugieras nombres para los grupos. El nombre del grupo siempre debe ser la keyword con mayor volumen dentro del grupo.
@@ -253,14 +253,14 @@ IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto a
 FORMATO DE RESPUESTA:
 {
   "cleanedGroups": [
-    {
+    { 
+      "reason": "",
       "groupIndex": 0,
       "keepKeywords": ["dupe good girl", "clon good girl"],
       "removeKeywords": [
         {"keyword": "perfume mujer dulce", "volume": 1200},
         {"keyword": "fragancia hombre", "volume": 800}
-      ],
-      "reason": "Las keywords removidas buscan intenciones diferentes y necesitan URLs separadas"
+      ]
     }
   ],
   "toClassify": [
