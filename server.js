@@ -191,6 +191,7 @@ const loadNicheContext = () => {
 };
 
 // Función auxiliar para llamadas con streaming a Anthropic
+// Soporta prompt caching mediante system messages
 const createMessageWithStreaming = async (anthropic, params) => {
   let fullText = '';
 
@@ -209,6 +210,23 @@ const createMessageWithStreaming = async (anthropic, params) => {
   return {
     content: [{ text: fullText }]
   };
+};
+
+// Función para crear system message con prompt caching
+const createCachedSystemMessage = (nicheContext) => {
+  if (!nicheContext) return [];
+
+  return [
+    {
+      type: "text",
+      text: `CONTEXTO DEL NICHO:
+${nicheContext}
+
+Este contexto contiene las reglas de agrupación de keywords para el nicho de perfumes dupe/equivalencias.
+Úsalo para entender cómo agrupar, clasificar y organizar las keywords correctamente.`,
+      cache_control: { type: "ephemeral" }
+    }
+  ];
 };
 
 // ENDPOINT 1: Limpieza de grupos
@@ -269,14 +287,7 @@ app.post('/api/clean-groups', async (req, res) => {
       };
     });
 
-    const contextSection = nicheContext ? `
-CONTEXTO DEL NICHO:
-${nicheContext}
-` : '';
-
     const prompt = `Eres un experto en SEO y análisis de keywords. Tu tarea es LIMPIAR grupos de keywords, identificando palabras que NO pertenecen a cada grupo.
-
-${contextSection}
 
 CONTEXTO IMPORTANTE:
 - Cada grupo tiene un NOMBRE que representa su intención/tema principal
@@ -484,12 +495,13 @@ Responde AHORA con el JSON (sin texto adicional):`;
       console.log('─'.repeat(80));
     }
 
-    // Usar retry logic para la llamada a Anthropic con streaming
+    // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
       return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.2,
+        system: createCachedSystemMessage(nicheContext),
         messages: [{ role: 'user', content: prompt }]
       });
     }, {
@@ -609,11 +621,6 @@ app.post('/api/classify-keywords-batch', async (req, res) => {
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
 
-    const contextSection = nicheContext ? `
-CONTEXTO DEL NICHO:
-${nicheContext}
-` : '';
-
     // Preparar el batch para el LLM
     const batchData = keywordsBatch.map((item, idx) => ({
       batchIndex: idx,
@@ -624,19 +631,14 @@ ${nicheContext}
     // Debug: calcular tamaño del batch data
     const batchDataStr = JSON.stringify(batchData, null, 2);
     const batchDataTokens = Math.ceil(batchDataStr.length / 4); // Estimación aproximada
-    const contextTokens = contextSection ? Math.ceil(contextSection.length / 4) : 0;
 
     console.log(`   📊 Debug de tokens:`);
     console.log(`      - Keywords en batch: ${keywordsBatch.length}`);
     console.log(`      - Candidatos totales: ${keywordsBatch.reduce((sum, kw) => sum + kw.candidateGroups.length, 0)}`);
     console.log(`      - Caracteres batchData: ${batchDataStr.length.toLocaleString()}`);
     console.log(`      - Tokens estimados batchData: ${batchDataTokens.toLocaleString()}`);
-    console.log(`      - Tokens estimados contexto: ${contextTokens.toLocaleString()}`);
-    console.log(`      - Tokens totales estimados: ${(batchDataTokens + contextTokens).toLocaleString()}`);
 
     const prompt = `Eres un experto en SEO. Debes clasificar MÚLTIPLES keywords en sus grupos más apropiados.
-
-${contextSection}
 
 KEYWORDS A CLASIFICAR (BATCH):
 ${batchDataStr}
@@ -694,12 +696,13 @@ Responde AHORA con el JSON (sin texto adicional):`;
       console.log('─'.repeat(80));
     }
 
-    // Usar retry logic para la llamada a Anthropic con streaming
+    // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
       return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.2,
+        system: createCachedSystemMessage(nicheContext),
         messages: [{ role: 'user', content: prompt }]
       });
     }, {
@@ -774,14 +777,7 @@ app.post('/api/classify-keywords', async (req, res) => {
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
 
-    const contextSection = nicheContext ? `
-CONTEXTO DEL NICHO:
-${nicheContext}
-` : '';
-
     const prompt = `Eres un experto en SEO. Debes clasificar una keyword en el grupo más apropiado semánticamente.
-
-${contextSection}
 
 KEYWORD A CLASIFICAR:
 "${keyword}"
@@ -832,12 +828,13 @@ Responde AHORA con el JSON (sin texto adicional):`;
     console.log(prompt.slice(0, 1500) + '...\n[TRUNCADO]');
     console.log('─'.repeat(80));
 
-    // Usar retry logic para la llamada a Anthropic con streaming
+    // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
       return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.2,
+        system: createCachedSystemMessage(nicheContext),
         messages: [{ role: 'user', content: prompt }]
       });
     }, {
@@ -920,14 +917,7 @@ app.post('/api/generate-hierarchies', async (req, res) => {
       volume: group.volume || 0
     }));
 
-    const contextSection = nicheContext ? `
-CONTEXTO DEL NICHO:
-${nicheContext}
-` : '';
-
     const prompt = `Eres un experto en arquitectura de información y SEO. Debes crear conexiones padre-hijo entre grupos de keywords para crear una estructura jerárquica lógica.
-
-${contextSection}
 
 REGLAS PARA JERARQUÍAS:
 1. Un grupo PADRE debe ser una categoría/listado general o término más amplio
@@ -981,12 +971,13 @@ NOTA: Revisa TODOS los grupos cuidadosamente buscando relaciones de generalidad/
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    // Usar retry logic para la llamada a Anthropic con streaming
+    // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
       return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000,
         temperature: 0.3,
+        system: createCachedSystemMessage(nicheContext),
         messages: [{ role: 'user', content: prompt }]
       });
     }, {
@@ -1102,11 +1093,6 @@ app.post('/api/merge-groups', async (req, res) => {
     const anthropic = new Anthropic({ apiKey });
     const nicheContext = loadNicheContext();
 
-    const contextSection = nicheContext ? `
-CONTEXTO DEL NICHO:
-${nicheContext}
-` : '';
-
     // Preparar datos de cliques para el LLM
     const cliquesData = cliques.map((cliqueIndices, cliqueIdx) => {
       const cliqueGroups = cliqueIndices.map(groupIdx => {
@@ -1132,8 +1118,6 @@ ${nicheContext}
     });
 
     const prompt = `Eres un experto en SEO y arquitectura de contenido. Tu tarea es evaluar cliques de grupos similares y decidir si deberían fusionarse en un único grupo.
-
-${contextSection}
 
 CONTEXTO:
 - Un "clique" es un conjunto de grupos donde TODOS tienen alta similitud semántica entre sí
@@ -1208,12 +1192,13 @@ REGLAS CRÍTICAS:
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
-    // Usar retry logic para la llamada a Anthropic con streaming
+    // Usar retry logic para la llamada a Anthropic con streaming y prompt caching
     const message = await retryAnthropic(async () => {
       return await createMessageWithStreaming(anthropic, {
         model: 'claude-sonnet-4-5',
         max_tokens: 30000, // Aumentado para manejar muchos cliques
         temperature: 0.1,
+        system: createCachedSystemMessage(nicheContext),
         messages: [{ role: 'user', content: prompt }]
       });
     }, {
