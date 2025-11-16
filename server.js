@@ -244,7 +244,6 @@ OBJETIVO:
    - Solo agrupa keywords que podrían responderse en la MISMA landing page
 4. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
 5. IMPORTANTE: NO cambies ni sugieras nombres para los grupos. El nombre del grupo siempre debe ser la keyword con mayor volumen dentro del grupo.
-
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
 
@@ -254,7 +253,7 @@ FORMATO DE RESPUESTA:
 {
   "cleanedGroups": [
     { 
-      "reason": "La URL apunta al perfume good girl exclusivamente, pese a que mujer dulce está cerca, mujer dulce es más amplio",
+      "reason": "URL específico para perfume dupe Good Girl"
       "groupIndex": 0,
       "keepKeywords": ["dupe good girl", "clon good girl"]
     }
