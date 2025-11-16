@@ -236,7 +236,7 @@ Usa este contexto para entender:
 ${contextSection}
 
 OBJETIVO:
-1. Para cada grupo, identifica keywords que NO tienen sentido semántico con el resto
+1. Cada grupo debe responder a una sóla intención de búsqueda. Las kw que no tengan sentido con las keywords de mayor volumen del grupo deben enviarse al grupo "LLM-POR-CLASIFICAR".
 2. Esas keywords "huérfanas" deben moverse al grupo "LLM-POR-CLASIFICAR"
 3. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
    - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
