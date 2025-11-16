@@ -259,13 +259,12 @@ ${contextSection}
 
 OBJETIVO:
 1. Cada grupo debe responder a una sóla intención de búsqueda. Las kw que no tengan sentido con las keywords de mayor volumen del grupo deben enviarse al grupo "LLM-POR-CLASIFICAR".
-2. Esas keywords "huérfanas" deben moverse al grupo "LLM-POR-CLASIFICAR"
-3. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
+2. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
    - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
    - "dupe de mujer" → URL diferente a "dupe 212 vip"
    - Solo agrupa keywords que podrían responderse en la MISMA landing page
-4. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
-5. IMPORTANTE: NO cambies ni sugieras nombres para los grupos. El nombre del grupo siempre debe ser la keyword con mayor volumen dentro del grupo.
+3. Un grupo debe mantener UNA ÚNICA intención de búsqueda y responder a UNA URL
+
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
 
@@ -283,33 +282,23 @@ NO incluyas:
 
 Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
-FORMATO DE RESPUESTA:
+FORMATO DE RESPUESTA (SOLO las keywords que deben MOVERSE a LLM-POR-CLASIFICAR):
 {
-  "cleanedGroups": [
-    {
-      "groupIndex": 0,
-      "keepKeywords": ["dupe good girl", "clon good girl"],
-      "reason": "URL específico para perfume dupe Good Girl"
-    }
-  ],
   "toClassify": [
     {
       "keywordId": "kw-1234567890-abc123",
       "keyword": "perfume mujer dulce"
-    },
-    {
-      "keywordId": "kw-0987654321-def456",
-      "keyword": "fragancia hombre"
     }
   ]
 }
 
-REGLAS:
-- Solo incluye grupos que necesiten limpieza
-- toClassify debe contener TODAS las keywords removidas con su keywordId (para preservar el ID original y volumen)
-- NO incluyas volúmenes en toClassify (se preservan automáticamente con el keywordId)
-- Si un grupo está bien, no lo incluyas en cleanedGroups
-- NO sugieras títulos, trabajaremos con las keywords de mayor volumen
+REGLAS CRÍTICAS:
+- Solo devuelve las keywords que DEBEN MOVERSE a LLM-POR-CLASIFICAR
+- Las keywords que NO aparezcan en toClassify se quedarán en su grupo actual
+- Cada item en toClassify debe tener keywordId (para preservar volumen) y keyword
+- NO devuelvas listas de keywords que se quedan en grupos (eso lo infiere el sistema)
+- NO incluyas volúmenes (se preservan automáticamente con el keywordId)
+- Si NO hay keywords para mover, devuelve: { "toClassify": [] }
 
 Responde AHORA con el JSON (sin texto adicional):`;
 
