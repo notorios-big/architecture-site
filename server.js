@@ -154,8 +154,30 @@ app.post('/api/embeddings', async (req, res) => {
   }
 });
 
-// Función auxiliar para cargar el contexto del nicho
+// Función auxiliar para remover code fences de JSON (```json ... ```)
 const fs = require('fs');
+
+/**
+ * Limpia la respuesta del modelo removiendo los code fences de markdown
+ * Maneja varios formatos: ```json, ```, ``` json, etc.
+ * @param {string} text - Texto que puede contener JSON con code fences
+ * @returns {string} - Texto limpio sin code fences
+ */
+const removeJsonFences = (text) => {
+  if (!text || typeof text !== 'string') return text;
+
+  // Remover code fences de markdown: ```json, ```, ``` json, etc.
+  let cleaned = text.trim();
+
+  // Patrón para remover ```json al inicio y ``` al final
+  cleaned = cleaned.replace(/^```json\s*/i, ''); // Inicio con ```json
+  cleaned = cleaned.replace(/^```\s*json\s*/i, ''); // Inicio con ``` json
+  cleaned = cleaned.replace(/^```\s*/i, ''); // Inicio con ```
+  cleaned = cleaned.replace(/```\s*$/i, ''); // Final con ```
+
+  return cleaned.trim();
+};
+
 const loadNicheContext = () => {
   try {
     const contextPath = path.join(__dirname, 'niche-context.json');
@@ -247,7 +269,19 @@ OBJETIVO:
 GRUPOS A LIMPIAR:
 ${JSON.stringify(groupsData, null, 2)}
 
-IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown (sin \`\`\`json), NO agregues explicaciones.
+⚠️ CRÍTICO - FORMATO DE RESPUESTA:
+Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
+❌ INCORRECTO: \`\`\`json { ... } \`\`\`
+❌ INCORRECTO: \`\`\` { ... } \`\`\`
+✅ CORRECTO: { ... }
+
+NO incluyas:
+- Code fences de markdown (\`\`\`json o \`\`\`)
+- Texto antes o después del JSON
+- Explicaciones adicionales
+- Comentarios
+
+Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
 FORMATO DE RESPUESTA:
 {
@@ -309,20 +343,23 @@ Responde AHORA con el JSON (sin texto adicional):`;
     // Estrategia multi-nivel para parsear JSON robusto
     let parseStrategy = '';
     try {
-      // Intento 1: Parsear directo (más común cuando funciona bien)
-      cleaningSuggestions = JSON.parse(responseText);
+      // Intento 1: Limpiar code fences y parsear directo
+      const cleanedText = removeJsonFences(responseText);
+      cleaningSuggestions = JSON.parse(cleanedText);
       parseStrategy = 'directo';
     } catch (e1) {
       try {
         // Intento 2: Extraer JSON con regex (por si hay texto antes/después)
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        const cleanedText = removeJsonFences(responseText);
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
         cleaningSuggestions = JSON.parse(jsonMatch[0]);
         parseStrategy = 'regex';
       } catch (e2) {
         try {
           // Intento 3: Reparar JSON truncado (común con respuestas largas)
-          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          const cleanedText = removeJsonFences(responseText);
+          const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
           if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
 
           let jsonStr = jsonMatch[0];
@@ -437,7 +474,19 @@ ${batchDataStr}
 
 Para cada keyword, analiza la intención de búsqueda y determina cuál grupo candidato es más apropiado.
 
-IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+⚠️ CRÍTICO - FORMATO DE RESPUESTA:
+Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
+❌ INCORRECTO: \`\`\`json { ... } \`\`\`
+❌ INCORRECTO: \`\`\` { ... } \`\`\`
+✅ CORRECTO: { ... }
+
+NO incluyas:
+- Code fences de markdown (\`\`\`json o \`\`\`)
+- Texto antes o después del JSON
+- Explicaciones adicionales
+- Comentarios
+
+Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
 FORMATO DE RESPUESTA:
 {
@@ -499,8 +548,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
     let batchClassification;
 
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      batchClassification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+      // Limpiar code fences antes de parsear
+      const cleanedText = removeJsonFences(responseText);
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+      batchClassification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(cleanedText);
     } catch (parseError) {
       return res.status(500).json({
         error: 'Error al parsear respuesta del modelo',
@@ -571,7 +622,19 @@ ${JSON.stringify(candidateGroups, null, 2)}
 
 Analiza la intención de búsqueda de la keyword y determina cuál grupo es más apropiado.
 
-IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+⚠️ CRÍTICO - FORMATO DE RESPUESTA:
+Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
+❌ INCORRECTO: \`\`\`json { ... } \`\`\`
+❌ INCORRECTO: \`\`\` { ... } \`\`\`
+✅ CORRECTO: { ... }
+
+NO incluyas:
+- Code fences de markdown (\`\`\`json o \`\`\`)
+- Texto antes o después del JSON
+- Explicaciones adicionales
+- Comentarios
+
+Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
 FORMATO DE RESPUESTA:
 
@@ -623,8 +686,10 @@ Responde AHORA con el JSON (sin texto adicional):`;
     let classification;
 
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      classification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+      // Limpiar code fences antes de parsear
+      const cleanedText = removeJsonFences(responseText);
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+      classification = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(cleanedText);
     } catch (parseError) {
       return res.status(500).json({
         error: 'Error al parsear respuesta del modelo',
@@ -712,7 +777,19 @@ REGLAS PARA JERARQUÍAS:
 GRUPOS DISPONIBLES:
 ${JSON.stringify(groupsData, null, 2)}
 
-IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+⚠️ CRÍTICO - FORMATO DE RESPUESTA:
+Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
+❌ INCORRECTO: \`\`\`json { ... } \`\`\`
+❌ INCORRECTO: \`\`\` { ... } \`\`\`
+✅ CORRECTO: { ... }
+
+NO incluyas:
+- Code fences de markdown (\`\`\`json o \`\`\`)
+- Texto antes o después del JSON
+- Explicaciones adicionales
+- Comentarios
+
+Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
 FORMATO DE RESPUESTA:
 
@@ -753,24 +830,25 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const responseText = message.content[0].text;
     let hierarchySuggestions;
 
-    // Estrategia multi-nivel para parsear JSON robusto (igual que en merge-groups)
+    // Estrategia multi-nivel para parsear JSON robusto
     let parseStrategy = '';
     try {
-      // Intento 1: Parsear directo (más común cuando funciona bien)
-      hierarchySuggestions = JSON.parse(responseText);
+      // Intento 1: Limpiar code fences y parsear directo
+      const cleanedText = removeJsonFences(responseText);
+      hierarchySuggestions = JSON.parse(cleanedText);
       parseStrategy = 'directo';
     } catch (e1) {
       try {
-        // Intento 2: Remover markdown code blocks (```json ... ```)
-        let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        // Intento 2: Extraer JSON con regex
+        const cleanedText = removeJsonFences(responseText);
         const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
         hierarchySuggestions = JSON.parse(jsonMatch[0]);
-        parseStrategy = 'sin-markdown';
+        parseStrategy = 'regex';
       } catch (e2) {
         try {
           // Intento 3: Reparar JSON truncado (cerrar arrays/objetos)
-          let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+          const cleanedText = removeJsonFences(responseText);
           const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
           if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
 
@@ -787,7 +865,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
           // Intento 4: Fallar con información útil
           console.error('❌ Error parseando respuesta después de 3 intentos:');
           console.error('  - Intento 1 (directo):', e1.message);
-          console.error('  - Intento 2 (sin-markdown):', e2.message);
+          console.error('  - Intento 2 (regex):', e2.message);
           console.error('  - Intento 3 (reparación):', e3.message);
           console.error('📄 Últimos 500 caracteres de respuesta:', responseText.slice(-500));
           console.error('📏 Longitud total de respuesta:', responseText.length);
@@ -922,7 +1000,19 @@ REGLA: Si los grupos representan LA MISMA búsqueda con palabras diferentes, FUS
 CLIQUES A EVALUAR:
 ${JSON.stringify(cliquesData, null, 2)}
 
-IMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido. NO incluyas texto adicional, NO uses markdown, NO agregues explicaciones.
+⚠️ CRÍTICO - FORMATO DE RESPUESTA:
+Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
+❌ INCORRECTO: \`\`\`json { ... } \`\`\`
+❌ INCORRECTO: \`\`\` { ... } \`\`\`
+✅ CORRECTO: { ... }
+
+NO incluyas:
+- Code fences de markdown (\`\`\`json o \`\`\`)
+- Texto antes o después del JSON
+- Explicaciones adicionales
+- Comentarios
+
+Responde SOLO con el objeto JSON, comenzando directamente con { y terminando con }
 
 FORMATO DE RESPUESTA:
 {
@@ -970,21 +1060,22 @@ Responde AHORA con el JSON (sin texto adicional):`;
     // Estrategia multi-nivel para parsear JSON robusto
     let parseStrategy = '';
     try {
-      // Intento 1: Parsear directo (más común cuando funciona bien)
-      decisions = JSON.parse(responseText);
+      // Intento 1: Limpiar code fences y parsear directo
+      const cleanedText = removeJsonFences(responseText);
+      decisions = JSON.parse(cleanedText);
       parseStrategy = 'directo';
     } catch (e1) {
       try {
-        // Intento 2: Remover markdown code blocks (```json ... ```)
-        let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        // Intento 2: Extraer JSON con regex
+        const cleanedText = removeJsonFences(responseText);
         const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
         decisions = JSON.parse(jsonMatch[0]);
-        parseStrategy = 'sin-markdown';
+        parseStrategy = 'regex';
       } catch (e2) {
         try {
           // Intento 3: Reparar JSON truncado (cerrar arrays/objetos)
-          let cleanedText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+          const cleanedText = removeJsonFences(responseText);
           const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
           if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
 
@@ -1001,7 +1092,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
           // Intento 4: Fallar con información útil
           console.error('❌ Error parseando respuesta después de 3 intentos:');
           console.error('  - Intento 1 (directo):', e1.message);
-          console.error('  - Intento 2 (sin-markdown):', e2.message);
+          console.error('  - Intento 2 (regex):', e2.message);
           console.error('  - Intento 3 (reparación):', e3.message);
           console.error('📄 Últimos 500 caracteres de respuesta:', responseText.slice(-500));
           console.error('📏 Longitud total de respuesta:', responseText.length);
