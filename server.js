@@ -473,7 +473,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 16384,
+        max_tokens: 30000,
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }]
       });
@@ -683,7 +683,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 4096,
+        max_tokens: 30000,
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }]
       });
@@ -821,7 +821,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 1024,
+        max_tokens: 30000,
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }]
       });
@@ -972,7 +972,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 4096,
+        max_tokens: 30000,
         temperature: 0.3,
         messages: [{ role: 'user', content: prompt }]
       });
@@ -1199,7 +1199,7 @@ Responde AHORA con el JSON (sin texto adicional):`;
     const message = await retryAnthropic(async () => {
       return await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 16384, // Aumentado para manejar muchos cliques
+        max_tokens: 30000, // Aumentado para manejar muchos cliques
         temperature: 0.1,
         messages: [{ role: 'user', content: prompt }]
       });

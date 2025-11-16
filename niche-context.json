@@ -1,62 +1,74 @@
-{
-  "nicho": "perfumes-dupes",
-  "equivalencias": {
-    "dupes": ["clones", "perfumes replica", "inspiraciones", "alternativas", "similares", "imitaciones", "versiones"],
-    "mujer": ["mujeres", "femenino", "ella", "dama", "ladies", "women"],
-    "hombre": ["hombres", "masculino", "el", "caballero", "men"]
-  },
+#Objetivo:
+Tener siempre presente cómo se agrupan las keywords relacionadas con “perfumes dupe / equivalencias / inspiraciones” para que cada grupo apunte a una sola URL coherente (ficha de producto o colección, o informativa).
 
-  "reglas_agrupacion": [
-    "Recuerda que cada grupo de keywords apunta a una URL específica, por lo que las keywords deben mantener la misma intención de búsqueda y responder a la misma URL",
-    "Keywords que mencionan el mismo perfume original deben estar en el mismo grupo",
-    "Keywords con diferente genero (mujer vs hombre) deben estar en grupos separados",
-    "Keywords que buscan una lista general (ej: 'mejores dupes') vs un producto especifico deben estar separadas",
-    "Keywords transaccionales (comprar, precio) vs informativas (reseña, opinion) pueden estar en el mismo grupo si hablan del mismo producto",
-    "Variaciones de duracion (larga duracion, todo el dia) son caracteristicas complementarias, no grupos separados"
-  ],
+#Instrucciones de agrupación:
 
-  "ejemplos_buenos_grupos": [
-    {
-      "nombre": "Dupe Good Girl Carolina Herrera",
-      "keywords": ["dupe good girl", "clon good girl", "inspiracion good girl", "alternativa good girl"],
-      "razon": "Todas buscan alternativas al mismo perfume especifico"
-    },
-    {
-      "nombre": "Dupes de 212 Men (Hombre)",
-      "keywords": ["dupe 212 men", "clon 212 hombre", "alternativa 212 masculino", "inspiracion 212 carolina herrera hombre"],
-      "razon": "Todas buscan alternativas al mismo perfume masculino"
-    },
-    {
-      "nombre": "Mejores Dupes Perfumes Mujer",
-      "keywords": ["mejores dupes perfume mujer", "top dupes femeninos", "dupes baratos mujer", "listado dupes ella"],
-      "razon": "Todas buscan una lista/comparativa general, no un producto especifico"
-    }
-  ],
+Recuerda siempre que cada grupo debe resolver exactamente una intención de búsqueda y apuntar a una única URL coherente; esto significa que las palabras deben compartir el mismo propósito del usuario (buscar un dupe específico, un listado, una categoría, un tipo de fragancia, una versión femenina/masculina, un precio o una característica concreta). No mezcles: perfumes distintos, géneros distintos, listados con productos específicos, ni atributos de compra (barato, económico) con atributos aromáticos (amaderado, cítrico, dulce). Cuando un término cambia el objetivo de la búsqueda, aunque sea ligeramente, se convierte en otro grupo. En caso de duda, pregúntate: “¿Estas keywords deberían llevar a la misma página sin decepcionar al usuario?”. Si la respuesta es no, sepáralas.
 
-  "ejemplos_malos_grupos": [
-    {
-      "nombre": "Dupes Perfumes Hombre",
-      "keywords_problematicas": ["dupe 212 men", "dupe one million", "dupe sauvage", "mejores dupes hombre"],
-      "problema": "Mezcla productos especificos (212, one million, sauvage) con busqueda general (mejores dupes). Deben ser 4 grupos separados",
-      "solucion": "Crear 4 grupos: 'Dupe 212 Men', 'Dupe One Million', 'Dupe Sauvage', 'Mejores Dupes Hombre'"
-    },
-    {
-      "nombre": "Inspiraciones Carolina Herrera",
-      "keywords_problematicas": ["inspiracion good girl", "inspiracion 212 men", "inspiracion ch men", "inspiracion bad boy"],
-      "problema": "Son productos completamente diferentes de la misma marca, necesitan URLs separadas",
-      "solucion": "Separar en grupos por producto: Good Girl, 212 Men, CH Men, Bad Boy"
-    }
-  ],
+Ejemplos de agrupación:
 
-  "jerarquias_logicas": {
-    "ejemplo_1": {
-      "padre": "Dupes Carolina Herrera",
-      "hijos": ["Dupe Good Girl", "Dupe 212 VIP", "Dupe Bad Boy", "Dupe CH Men"]
-    },
-    "ejemplo_2": {
-      "padre": "Dupes Perfumes Mujer",
-      "hijos": ["Dupes Perfumes Dulces Mujer", "Dupes Perfumes Frescos Mujer"]
-    },
-    "regla": "Solo crear padre-hijo cuando el padre es una categoria/landing de listado y los hijos son productos/subcategorias especificas que pertenecen a ese listado"
-  }
-}
+1.1. Grupo “dupes / equivalencias”:
+[dupes, clones, perfumes replica, replica perfume, equivalencia, equivalencias, perfume inspirado, perfume inspirado en, alternativas a, similares, perfume similar, imitacion, imitaciones, perfume tipo X, dupe original, equivalente al original, similar al original]
+
+otro grupo porque es diferente intención de búsqueda:
+[dupe barato, alternativa barata, dupes economicos]
+
+1.2. Grupo “mujer / femenino”:
+[perfume mujer, perfume mujeres, fragancias femeninas, perfumes para ella, perfumes para chicas]
+
+otro grupo porque es diferente intención de búsqueda, si bien es perfume de mujer, apunta a una URL de producto en este caso:
+[aqua di gioia, perfume acqua di gio para mujer, acqua di gio verisión femenina]
+
+1.3. Grupo "perfumes amaderados"
+[perfumes amaderados, fragancia amaderada, perfumes con notas de madera, perfumes woody, perfume madera, fragancias con cedro, perfumes con sándalo, perfume olor a madera, perfumes con notas amaderadas]
+
+otro grupo porque apunta a características de compra/precio, no al tipo de fragancia:
+[perfumes amaderados baratos, perfume amaderado económico, mejor perfume amaderado calidad precio]
+
+otro grupo que apunta más especifico:
+[perfumes amaderados para hombres, perfumes para hombre olor madera, perfume de cedro para hombre]
+
+y uno más especifico:
+[perfume hugo boss amaderado, fragancia boss amaderada]
+
+
+2. Otros ejemplos:
+
+2.1. Grupo “Dupe Good Girl Carolina Herrera”:
+[dupe good girl, clon good girl, perfume tipo good girl, alternativa good girl, perfume inspirado good girl, equivalente good girl mujer]
+
+diferente a:
+[perfume de mujer carolina herrara, perfume ch mujer]
+
+2.2. Grupo “Dupe 212 Men”:
+[dupe 212 men, clon 212 hombre, alternativa 212 masculino, perfume inspirado 212 men, similar 212 men]
+
+2.3. Grupo “Mejores dupes mujer – listado”:
+[mejores dupes perfume mujer, top dupes femeninos, 5 mejores dupes baratos mujer, ranking dupes mujer, lista perfumes inspirados mujer]
+
+2.4. Grupo “Dupe Sauvage Dior”:
+[dupe sauvage, clon sauvage dior, alternativa sauvage hombre, perfume tipo sauvage, inspirado sauvage]
+
+2.5. Grupo “Dupes nicho mujer – listado”:
+[dupes perfumes nicho mujer, alternativas nicho mujer, equivalencias nicho femenino, clones perfumes nicho mujer]
+
+2.6. Perfumes baratos:
+[perfumes econonicos, ofertas de perfumes, perfume en oferta, perfumes baratos]
+
+y más especifico es:
+[perfumes baratos de hombre, perfume oferta hombre, perfume hombre descuento]
+
+
+3. Ejemplos de malos grupos:
+
+3.1. Mezcla de productos específicos + listado:
+[dupe 212 men, dupe one million, dupe sauvage, mejores dupes hombre]
+→ Separar en 4 grupos.
+
+3.2. Mezcla de perfumes distintos de la misma marca:
+[inspiracion good girl, inspiracion 212 men, inspiracion ch men, inspiracion bad boy]
+→ Separar por perfume.
+
+3.3. Mezcla de géneros:
+[dupe one million hombre, dupe lady million]
+→ Hacer 2 grupos.
