@@ -645,6 +645,7 @@ app.post('/api/classify-keywords-batch', async (req, res) => {
     // Preparar el batch para el LLM
     const batchData = keywordsBatch.map((item, idx) => ({
       batchIndex: idx,
+      keywordId: item.keywordObj?.id || item.keywordId || `unknown-${idx}`,
       keyword: item.keyword,
       candidates: item.candidateGroups
     }));
@@ -684,16 +685,16 @@ FORMATO DE RESPUESTA:
 {
   "classifications": [
     {
+      "keywordId": "kw-1672849201234-a8f3b9",
       "batchIndex": 0,
       "selectedGroupIndex": 2,
-      "confidence": 0.85,
-      "reason": "La keyword busca dupes de Good Girl, coincide perfectamente con el grupo"
+      "confidence": 0.85
     },
     {
+      "keywordId": "kw-1672849201567-c4d2e1",
       "batchIndex": 1,
       "selectedGroupIndex": -1,
       "confidence": 0.9,
-      "reason": "Esta keyword busca un producto diferente, requiere grupo nuevo",
       "suggestedGroupName": "Dupe Sauvage Dior"
     }
   ]
@@ -701,9 +702,10 @@ FORMATO DE RESPUESTA:
 
 REGLAS:
 - Devuelve una clasificación por cada keyword en el batch
+- Incluye SIEMPRE keywordId y batchIndex (ambos deben coincidir con el input)
 - selectedGroupIndex: índice del grupo candidato elegido, o -1 si ninguno es apropiado
 - Si selectedGroupIndex es -1, incluye suggestedGroupName para crear nuevo grupo
-- Mantén el batchIndex para mapear cada respuesta a su keyword original
+- NO incluyas explicaciones o razones, solo la clasificación
 
 Responde AHORA con el JSON (sin texto adicional):`;
 

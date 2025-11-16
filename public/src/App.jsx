@@ -857,13 +857,23 @@ function App(){
 
           // 2.3 Aplicar clasificaciones
           for (const classification of classifications) {
-          const batchItem = keywordsBatch[classification.batchIndex];
-          if (!batchItem) continue;
+          // Usar keywordId como fuente de verdad
+          const batchItem = keywordsBatch.find(item => item.keywordObj?.id === classification.keywordId);
+          if (!batchItem) {
+            console.warn(`      ⚠️ No se encontró keyword con ID ${classification.keywordId}, saltando...`);
+            continue;
+          }
+
+          // Validación cruzada: verificar que batchIndex coincida
+          const expectedIndex = keywordsBatch.indexOf(batchItem);
+          if (expectedIndex !== classification.batchIndex) {
+            console.warn(`      ⚠️ Mismatch batchIndex: esperado ${expectedIndex}, recibido ${classification.batchIndex}`);
+          }
 
           const kw = batchItem.keywordObj;
           const candidates = batchItem.candidatesRaw;
 
-          console.log(`   → Clasificando "${kw.keyword}": grupo ${classification.selectedGroupIndex}`);
+          console.log(`   → Clasificando "${kw.keyword}" (ID: ${kw.id}): grupo ${classification.selectedGroupIndex}`);
 
           if (classification.selectedGroupIndex !== -1) {
             // Validar índice
