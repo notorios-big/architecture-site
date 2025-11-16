@@ -243,8 +243,8 @@ app.post('/api/clean-groups', async (req, res) => {
 
       return {
         index: idx,
+        name: group.name, // Nombre del grupo para dar contexto
         keywords: keywordsList
-        // name: removido para evitar sesgo en decisiones del LLM
       };
     });
 
@@ -264,14 +264,15 @@ Usa este contexto para entender:
 ${contextSection}
 
 CONTEXTO IMPORTANTE:
+- Cada grupo tiene un NOMBRE que representa su intención/tema principal
 - Cada grupo tiene sus keywords ORDENADAS por volumen (de mayor a menor)
 - Las keywords con MAYOR volumen definen la intención de búsqueda del grupo
-- Las keywords con menor volumen deben ser coherentes con las de mayor volumen
+- El NOMBRE del grupo + keywords de mayor volumen = intención principal
 
 OBJETIVO:
-1. Las keywords de MAYOR VOLUMEN definen la intención del grupo (son las "principales")
-2. Las keywords de menor volumen deben tener sentido con las principales
-3. Si una keyword NO tiene sentido con las keywords de mayor volumen, debe moverse a "LLM-POR-CLASIFICAR"
+1. Usa el NOMBRE del grupo y las keywords de MAYOR VOLUMEN para entender la intención
+2. Las keywords de menor volumen deben ser coherentes con esta intención
+3. Si una keyword NO tiene sentido con el nombre del grupo y las keywords principales, debe moverse a "LLM-POR-CLASIFICAR"
 4. RECUERDA: Un grupo representa UNA URL específica. Por ejemplo:
    - "perfumes amaderados hombre" → URL diferente a "perfumes frescos hombre"
    - "dupe de mujer" → URL diferente a "dupe 212 vip"
