@@ -19,6 +19,8 @@ const FlowView = ({
   const editorRef = useRef(null);
   const [isDrawflowReady, setIsDrawflowReady] = useState(false);
   const isRenderingRef = useRef(false); // Flag para indicar si estamos renderizando
+  const [useAutoLayout, setUseAutoLayout] = useState(true); // Auto-layout activado por defecto
+  const [layoutDirection, setLayoutDirection] = useState('LR'); // 'LR' o 'TB'
 
   // Verificar que Drawflow esté disponible
   useEffect(() => {
@@ -70,6 +72,12 @@ const FlowView = ({
         if (editorRef.current) {
           editorRef.current.zoom_reset();
         }
+      },
+      toggleAutoLayout: () => {
+        setUseAutoLayout(prev => !prev);
+      },
+      toggleLayoutDirection: () => {
+        setLayoutDirection(prev => prev === 'LR' ? 'TB' : 'LR');
       }
     };
 
@@ -88,6 +96,260 @@ const FlowView = ({
       }
     }
     return null;
+  };
+
+  // ========================================
+  // AUTO-LAYOUT ALGORITHM
+  // ========================================
+  // Algoritmo jerárquico mejorado inspirado en Reingold-Tilford y Force Atlas
+  // Optimizado para visualizar arquitecturas SEO de manera clara y espaciada
+
+  const calculateAutoLayout = (nodes, expandedNodes, direction = 'LR') => {
+    // direction: 'LR' (left-to-right) o 'TB' (top-to-bottom)
+
+    const NODE_WIDTH = 280;
+    const NODE_HEIGHT = 160;
+    const LEVEL_SEPARATION = direction === 'LR' ? 450 : 250;
+    const SIBLING_SEPARATION = direction === 'LR' ? 180 : 350;
+    const SUBTREE_SEPARATION = direction === 'LR' ? 200 : 400;
+
+    const positions = new Map();
+
+    // Estructura para almacenar información de cada nodo
+    class TreeNode {
+      constructor(data, depth = 0, parent = null) {
+        this.data = data;
+        this.depth = depth;
+        this.parent = parent;
+        this.children = [];
+        this.x = 0;
+        this.y = 0;
+        this.mod = 0; // Modificador para el algoritmo de Walker
+        this.thread = null;
+        this.ancestor = this;
+        this.prelim = 0;
+        this.change = 0;
+        this.shift = 0;
+        this.number = 0;
+      }
+    }
+
+    // Construir árbol interno con nodos expandidos
+    const buildTreeStructure = (nodeData, depth = 0, parent = null) => {
+      const treeNode = new TreeNode(nodeData, depth, parent);
+
+      if (nodeData.isGroup && nodeData.children && expandedNodes.has(nodeData.id)) {
+        const childGroups = nodeData.children.filter(c => c.isGroup);
+        childGroups.forEach((child, index) => {
+          const childTreeNode = buildTreeStructure(child, depth + 1, treeNode);
+          childTreeNode.number = index;
+          treeNode.children.push(childTreeNode);
+        });
+      }
+
+      return treeNode;
+    };
+
+    // Algoritmo de Walker para calcular posiciones preliminares
+    const firstWalk = (node, leftSibling = null) => {
+      if (node.children.length === 0) {
+        // Nodo hoja
+        if (leftSibling) {
+          node.prelim = leftSibling.prelim + SIBLING_SEPARATION;
+        } else {
+          node.prelim = 0;
+        }
+      } else {
+        // Nodo interno
+        let defaultAncestor = node.children[0];
+
+        node.children.forEach((child, i) => {
+          firstWalk(child, i > 0 ? node.children[i - 1] : null);
+          defaultAncestor = apportion(child, defaultAncestor);
+        });
+
+        executeShifts(node);
+
+        const midpoint = (node.children[0].prelim + node.children[node.children.length - 1].prelim) / 2;
+
+        if (leftSibling) {
+          node.prelim = leftSibling.prelim + SIBLING_SEPARATION;
+          node.mod = node.prelim - midpoint;
+        } else {
+          node.prelim = midpoint;
+        }
+      }
+    };
+
+    const apportion = (node, defaultAncestor) => {
+      if (!node.parent) return defaultAncestor;
+
+      const leftSibling = node.number > 0 ? node.parent.children[node.number - 1] : null;
+
+      if (leftSibling) {
+        let insideRight = node;
+        let outsideRight = node;
+        let insideLeft = leftSibling;
+        let outsideLeft = node.parent.children[0];
+
+        let insideRightMod = insideRight.mod;
+        let outsideRightMod = outsideRight.mod;
+        let insideLeftMod = insideLeft.mod;
+        let outsideLeftMod = outsideLeft.mod;
+
+        while (nextRight(insideLeft) && nextLeft(insideRight)) {
+          insideLeft = nextRight(insideLeft);
+          insideRight = nextLeft(insideRight);
+          outsideLeft = nextLeft(outsideLeft);
+          outsideRight = nextRight(outsideRight);
+
+          outsideRight.ancestor = node;
+
+          const shift = (insideLeft.prelim + insideLeftMod) -
+                       (insideRight.prelim + insideRightMod) +
+                       SUBTREE_SEPARATION;
+
+          if (shift > 0) {
+            moveSubtree(ancestor(insideLeft, node, defaultAncestor), node, shift);
+            insideRightMod += shift;
+            outsideRightMod += shift;
+          }
+
+          insideLeftMod += insideLeft.mod;
+          insideRightMod += insideRight.mod;
+          outsideLeftMod += outsideLeft.mod;
+          outsideRightMod += outsideRight.mod;
+        }
+
+        if (nextRight(insideLeft) && !nextRight(outsideRight)) {
+          outsideRight.thread = nextRight(insideLeft);
+          outsideRight.mod += insideLeftMod - outsideRightMod;
+        }
+
+        if (nextLeft(insideRight) && !nextLeft(outsideLeft)) {
+          outsideLeft.thread = nextLeft(insideRight);
+          outsideLeft.mod += insideRightMod - outsideLeftMod;
+          defaultAncestor = node;
+        }
+      }
+
+      return defaultAncestor;
+    };
+
+    const nextLeft = (node) => {
+      return node.children.length > 0 ? node.children[0] : node.thread;
+    };
+
+    const nextRight = (node) => {
+      return node.children.length > 0 ? node.children[node.children.length - 1] : node.thread;
+    };
+
+    const moveSubtree = (leftNode, rightNode, shift) => {
+      const subtrees = rightNode.number - leftNode.number;
+      rightNode.change -= shift / subtrees;
+      rightNode.shift += shift;
+      leftNode.change += shift / subtrees;
+      rightNode.prelim += shift;
+      rightNode.mod += shift;
+    };
+
+    const executeShifts = (node) => {
+      let shift = 0;
+      let change = 0;
+
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        const child = node.children[i];
+        child.prelim += shift;
+        child.mod += shift;
+        change += child.change;
+        shift += child.shift + change;
+      }
+    };
+
+    const ancestor = (insideLeft, node, defaultAncestor) => {
+      if (node.parent && node.parent.children.includes(insideLeft.ancestor)) {
+        return insideLeft.ancestor;
+      }
+      return defaultAncestor;
+    };
+
+    const secondWalk = (node, modSum = 0, depth = 0) => {
+      // Convertir prelim + mod a coordenadas finales
+      const x = node.prelim + modSum;
+      const y = depth;
+
+      // Guardar posición según dirección
+      if (direction === 'LR') {
+        positions.set(node.data.id, {
+          x: y * LEVEL_SEPARATION + 50,
+          y: x + 50
+        });
+      } else { // TB
+        positions.set(node.data.id, {
+          x: x + 50,
+          y: y * LEVEL_SEPARATION + 50
+        });
+      }
+
+      // Recursión en hijos
+      node.children.forEach(child => {
+        secondWalk(child, modSum + node.mod, depth + 1);
+      });
+    };
+
+    // Ejecutar algoritmo para cada árbol raíz
+    const rootTrees = nodes.map(nodeData => buildTreeStructure(nodeData, 0));
+
+    // Calcular layout para cada árbol raíz y apilarlos verticalmente/horizontalmente
+    let currentOffset = 0;
+
+    rootTrees.forEach(rootTree => {
+      // Primera pasada: calcular posiciones relativas
+      firstWalk(rootTree);
+
+      // Segunda pasada: convertir a coordenadas absolutas
+      secondWalk(rootTree);
+
+      // Encontrar el extent del árbol para apilar el siguiente
+      let minPos = Infinity;
+      let maxPos = -Infinity;
+
+      const traverse = (node) => {
+        const pos = positions.get(node.data.id);
+        if (direction === 'LR') {
+          minPos = Math.min(minPos, pos.y);
+          maxPos = Math.max(maxPos, pos.y);
+        } else {
+          minPos = Math.min(minPos, pos.x);
+          maxPos = Math.max(maxPos, pos.x);
+        }
+        node.children.forEach(traverse);
+      };
+
+      traverse(rootTree);
+
+      // Offset para este árbol
+      if (currentOffset > 0) {
+        const offsetAmount = currentOffset - minPos + SUBTREE_SEPARATION;
+
+        const applyOffset = (node) => {
+          const pos = positions.get(node.data.id);
+          if (direction === 'LR') {
+            positions.set(node.data.id, { x: pos.x, y: pos.y + offsetAmount });
+          } else {
+            positions.set(node.data.id, { x: pos.x + offsetAmount, y: pos.y });
+          }
+          node.children.forEach(applyOffset);
+        };
+
+        applyOffset(rootTree);
+        currentOffset = maxPos + offsetAmount + SUBTREE_SEPARATION;
+      } else {
+        currentOffset = maxPos + SUBTREE_SEPARATION;
+      }
+    });
+
+    return positions;
   };
 
   // Generar HTML para un nodo
@@ -263,11 +525,21 @@ const FlowView = ({
       });
 
       // Construir el diagrama
+      const nodeIdMap = new Map(); // Mapeo de node.id a drawflow node id
+      const connections = []; // Array para guardar las conexiones a crear
+
+      // Calcular posiciones usando auto-layout si está activado
+      let autoPositions = null;
+      if (useAutoLayout) {
+        console.log('🎨 Calculando auto-layout...');
+        autoPositions = calculateAutoLayout(tree, expandedNodes, layoutDirection);
+        console.log(`✓ Auto-layout calculado: ${autoPositions.size} posiciones`);
+      }
+
+      // Fallback a layout manual simple
       const HORIZONTAL_SPACING = 400;
       const VERTICAL_SPACING = 150;
       const levelPositions = new Map();
-      const nodeIdMap = new Map(); // Mapeo de node.id a drawflow node id
-      const connections = []; // Array para guardar las conexiones a crear
 
       const traverse = (node, level = 0, parentId = null) => {
         if (!node) return;
@@ -277,15 +549,26 @@ const FlowView = ({
         console.log(`Procesando nodo: ${node.name || node.keyword}, Level: ${level}, Parent: ${parentId}, Expanded: ${isExpanded}`);
 
         // Calcular posición
-        if (!levelPositions.has(level)) {
-          levelPositions.set(level, []);
+        let xPosition, yPosition;
+
+        if (useAutoLayout && autoPositions && autoPositions.has(node.id)) {
+          // Usar posición calculada por auto-layout
+          const pos = autoPositions.get(node.id);
+          xPosition = pos.x;
+          yPosition = pos.y;
+          console.log(`  → Posición auto-layout: (${xPosition}, ${yPosition})`);
+        } else {
+          // Fallback a layout manual simple
+          if (!levelPositions.has(level)) {
+            levelPositions.set(level, []);
+          }
+
+          const usedPositions = levelPositions.get(level);
+          yPosition = usedPositions.length * VERTICAL_SPACING + 50;
+          usedPositions.push(yPosition);
+          xPosition = level * HORIZONTAL_SPACING + 50;
+          console.log(`  → Posición manual: (${xPosition}, ${yPosition})`);
         }
-
-        const usedPositions = levelPositions.get(level);
-        const yPosition = usedPositions.length * VERTICAL_SPACING + 50;
-        usedPositions.push(yPosition);
-
-        const xPosition = level * HORIZONTAL_SPACING + 50;
 
         // Generar HTML del nodo
         const html = generateNodeHTML(node, parentId !== null);
@@ -387,7 +670,7 @@ const FlowView = ({
         }
       }
     };
-  }, [tree, expandedNodes, isDrawflowReady]);
+  }, [tree, expandedNodes, isDrawflowReady, useAutoLayout, layoutDirection]);
 
   if (!isDrawflowReady) {
     return (
@@ -408,104 +691,177 @@ const FlowView = ({
         {/* Drawflow se renderiza aquí */}
       </div>
 
-      {/* Controles de zoom */}
+      {/* Controles de zoom y layout */}
       <div style={{
         position: 'absolute',
         left: '20px',
         bottom: '20px',
         display: 'flex',
-        gap: '8px',
+        flexDirection: 'column',
+        gap: '12px',
         zIndex: 10
       }}>
-        <button
-          onClick={() => window.flowCallbacks?.zoomOut()}
-          style={{
-            width: '40px',
-            height: '40px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            border: 'none',
-            borderRadius: '8px',
-            color: 'white',
-            fontSize: '24px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-            transition: 'all 0.2s',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.transform = 'scale(1.1)';
-            e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
-          }}
-          title="Alejar"
-        >
-          −
-        </button>
+        {/* Controles de zoom */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => window.flowCallbacks?.zoomOut()}
+            style={{
+              width: '40px',
+              height: '40px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '24px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = 'scale(1.1)';
+              e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+            }}
+            title="Alejar"
+          >
+            −
+          </button>
 
-        <button
-          onClick={() => window.flowCallbacks?.zoomReset()}
-          style={{
-            height: '40px',
-            padding: '0 16px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            border: 'none',
-            borderRadius: '8px',
-            color: 'white',
-            fontSize: '12px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-            transition: 'all 0.2s'
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.transform = 'scale(1.05)';
-            e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
-          }}
-          title="Restablecer zoom"
-        >
-          100%
-        </button>
+          <button
+            onClick={() => window.flowCallbacks?.zoomReset()}
+            style={{
+              height: '40px',
+              padding: '0 16px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = 'scale(1.05)';
+              e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+            }}
+            title="Restablecer zoom"
+          >
+            100%
+          </button>
 
-        <button
-          onClick={() => window.flowCallbacks?.zoomIn()}
-          style={{
-            width: '40px',
-            height: '40px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            border: 'none',
-            borderRadius: '8px',
-            color: 'white',
-            fontSize: '24px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-            transition: 'all 0.2s',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.transform = 'scale(1.1)';
-            e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
-          }}
-          title="Acercar"
-        >
-          +
-        </button>
+          <button
+            onClick={() => window.flowCallbacks?.zoomIn()}
+            style={{
+              width: '40px',
+              height: '40px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '24px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = 'scale(1.1)';
+              e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+            }}
+            title="Acercar"
+          >
+            +
+          </button>
+        </div>
+
+        {/* Controles de auto-layout */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => window.flowCallbacks?.toggleAutoLayout()}
+            style={{
+              height: '40px',
+              padding: '0 16px',
+              background: useAutoLayout
+                ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                : 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = 'scale(1.05)';
+              e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+            }}
+            title={useAutoLayout ? "Desactivar auto-layout" : "Activar auto-layout"}
+          >
+            {useAutoLayout ? '✨ Auto' : '📐 Manual'}
+          </button>
+
+          {useAutoLayout && (
+            <button
+              onClick={() => window.flowCallbacks?.toggleLayoutDirection()}
+              style={{
+                width: '40px',
+                height: '40px',
+                background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                color: 'white',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = 'scale(1.1)';
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.3)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+              }}
+              title={layoutDirection === 'LR' ? "Cambiar a vertical" : "Cambiar a horizontal"}
+            >
+              {layoutDirection === 'LR' ? '→' : '↓'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Controles de ayuda */}
@@ -519,14 +875,16 @@ const FlowView = ({
         boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
         fontSize: '12px',
         zIndex: 10,
-        maxWidth: '220px',
+        maxWidth: '250px',
         backdropFilter: 'blur(10px)'
       }}>
         <strong style={{ fontSize: '13px', color: '#333' }}>💡 Controles:</strong><br/>
         <div style={{ marginTop: '8px', lineHeight: '1.6', color: '#555' }}>
+          • ✨ <strong>Auto-layout</strong>: organiza nodos automáticamente<br/>
+          • → / ↓ Cambiar orientación del layout<br/>
           • Arrastra nodos para moverlos<br/>
           • Clic en Expandir para ver subgrupos<br/>
-          • Usa los botones +/− para zoom<br/>
+          • Usa +/− para zoom<br/>
           • Arrastra el canvas para desplazarte
         </div>
       </div>
