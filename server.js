@@ -321,9 +321,6 @@ OBJETIVO:
 5. En resumen, Solo mantén en los grupos las keywords que podrían responderse en la MISMA landing page. 
 6. La keyword que manda al grupo es la de mayor volumen
 
-GRUPOS A LIMPIAR (keywords ordenadas por volumen DESC):
-${JSON.stringify(groupsData, null, 2)}
-
 ⚠️ CRÍTICO - FORMATO DE RESPUESTA:
 Tu respuesta debe ser ÚNICAMENTE JSON puro, sin ningún formato markdown.
 ❌ INCORRECTO: \`\`\`json { ... } \`\`\`
@@ -501,7 +498,9 @@ REGLAS CRÍTICAS:
 - NO incluyas volúmenes en la respuesta (se preservan automáticamente con el keywordId)
 - Si NO hay keywords para mover, devuelve: { "toClassify": [] }
 
-Responde AHORA con el JSON (sin texto adicional):`;
+Responde AHORA con el JSON (sin texto adicional), GRUPOS A LIMPIAR (keywords ordenadas por volumen DESC):
+${JSON.stringify(groupsData, null, 2)}
+`;
 
     // Log del prompt (solo en el primer batch para no saturar consola)
     if (batchIndex === 0) {
