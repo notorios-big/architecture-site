@@ -298,8 +298,8 @@ FORMATO DE RESPUESTA (SOLO las keywords que deben MOVERSE a LLM-POR-CLASIFICAR):
 {
   "toClassify": [
     {
-      "keywordId": "kw-1234567890-abc123",
-      "keyword": "perfume mujer dulce"
+      {"keywordId": "kw-1234567890-abc123", "keyword": "perfume mujer dulce"},
+      {"keywordId": "kw-1234527890-ab12", "keyword": "baile marino"}
     }
   ]
 }
