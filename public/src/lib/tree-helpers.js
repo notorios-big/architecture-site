@@ -11,7 +11,24 @@ const directGroupVolume = (node) => {
   }, 0);
 };
 
-// Función para obtener volumen de un nodo
+// Función para calcular volumen TOTAL (recursivo, incluye todos los descendientes)
+const totalGroupVolume = (node) => {
+  if (!node?.isGroup) return node?.volume || 0;
+
+  if (!node.children) return 0;
+
+  // Sumar TODAS las keywords de este grupo y todos sus subgrupos recursivamente
+  return node.children.reduce((sum, child) => {
+    if (child?.isGroup) {
+      // Si es un grupo, sumamos recursivamente todo lo que tiene dentro
+      return sum + totalGroupVolume(child);
+    }
+    // Si es una keyword, la sumamos
+    return sum + (child?.volume || 0);
+  }, 0);
+};
+
+// Función para obtener volumen de un nodo (solo keywords directas)
 const nodeVolume = (node) => {
   if (!node?.isGroup) return node?.volume || 0;
   const cache = window.volumeCacheRef.current;
@@ -23,5 +40,7 @@ const nodeVolume = (node) => {
 };
 
 // Hacer disponible globalmente
+window.directGroupVolume = directGroupVolume;
+window.totalGroupVolume = totalGroupVolume;
 window.nodeVolume = nodeVolume;
 
