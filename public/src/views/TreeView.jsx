@@ -1,5 +1,5 @@
 // src/views/TreeView.jsx
-const { nodeVolume } = window;
+const { nodeVolume, totalGroupVolume, directGroupVolume } = window;
 const { IChevronR, IChevronD, IFolderOpen, IEdit, ICheck, IX, ITrash } = window;
 const { useState, useCallback, useMemo, useRef, memo } = React;
 
@@ -86,7 +86,9 @@ const TreeView = ({
     if (parentCollapsed) return null;
 
     const isGroup = !!node.isGroup;
-    const total = nodeVolume(node);
+    // Para grupos: calcular ambos volúmenes
+    const totalVol = isGroup ? totalGroupVolume(node) : (node?.volume || 0);
+    const ownVol = isGroup ? directGroupVolume(node) : null;
     const isSelected = !isGroup && selectedNodes && selectedNodes.has(node.id);
     const isBeingDragged = dragging && dragging.id === node.id;
     const isMultiDrag = dragging && selectedNodes && selectedNodes.has(dragging.id) && selectedNodes.size > 1;
@@ -179,9 +181,23 @@ const TreeView = ({
                   </button>
                 )}
 
-            <div className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full text-sm font-bold">
-              {total.toLocaleString('es-CL')}
-            </div>
+            {/* Mostrar volúmenes */}
+            {isGroup ? (
+              <div className="flex gap-2">
+                <div className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full text-sm font-bold tooltip"
+                     data-tooltip="Volumen total (con hijos)">
+                  {totalVol.toLocaleString('es-CL')}
+                </div>
+                <div className="px-3 py-1 bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-full text-sm font-bold tooltip"
+                     data-tooltip="Volumen propio (solo keywords directas)">
+                  {ownVol.toLocaleString('es-CL')}
+                </div>
+              </div>
+            ) : (
+              <div className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full text-sm font-bold">
+                {totalVol.toLocaleString('es-CL')}
+              </div>
+            )}
 
             <button onClick={() => deleteNode(node.id)}
                     className="p-2 hover:bg-red-100 rounded-lg transition-all tooltip"

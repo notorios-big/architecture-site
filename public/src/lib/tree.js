@@ -18,11 +18,12 @@ const sortChildren = (nodes) => {
     const aIsGroup = !!a?.isGroup;
     const bIsGroup = !!b?.isGroup;
     if (aIsGroup !== bIsGroup) return aIsGroup ? 1 : -1;
-    
-    const volA = (window.nodeVolume || (() => 0))(a);
-    const volB = (window.nodeVolume || (() => 0))(b);
+
+    // Usar totalGroupVolume para ordenar (incluye todos los descendientes)
+    const volA = (window.totalGroupVolume || (() => 0))(a);
+    const volB = (window.totalGroupVolume || (() => 0))(b);
     if (volB !== volA) return volB - volA;
-    
+
     const labelA = (aIsGroup ? (a.name || '') : (a.keyword || '')).toLowerCase();
     const labelB = (bIsGroup ? (b.name || '') : (b.keyword || '')).toLowerCase();
     return labelA.localeCompare(labelB);
@@ -61,13 +62,14 @@ const sortOnlyAffectedNode = (tree, targetId) => {
 // Función para ordenar recursivamente todos los nodos
 const sortGroupChildren = (nodes) => {
   volumeCacheRef.current.clear();
-  
+
   const sortedNodes = [...nodes].sort((a, b) => {
     const aIsGroup = !!a?.isGroup;
     const bIsGroup = !!b?.isGroup;
     if (aIsGroup !== bIsGroup) return aIsGroup ? 1 : -1;
-    const volA = (window.nodeVolume || (() => 0))(a);
-    const volB = (window.nodeVolume || (() => 0))(b);
+    // Usar totalGroupVolume para ordenar (incluye todos los descendientes)
+    const volA = (window.totalGroupVolume || (() => 0))(a);
+    const volB = (window.totalGroupVolume || (() => 0))(b);
     if (volB !== volA) return volB - volA;
     const labelA = (aIsGroup ? (a.name || '') : (a.keyword || '')).toLowerCase();
     const labelB = (bIsGroup ? (b.name || '') : (b.keyword || '')).toLowerCase();
