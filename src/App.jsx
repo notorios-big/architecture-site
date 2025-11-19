@@ -4,9 +4,6 @@ import storage from './lib/storage.js';
 import { parseCSV, uid } from './lib/csv.js';
 import { cosine } from './lib/vectors.js';
 import {
-  nodeVolume,
-  totalGroupVolume,
-  directGroupVolume,
   volumeCacheRef,
   sortGroupChildren,
   findNode,
@@ -15,6 +12,11 @@ import {
   insertInto,
   sortOnlyAffectedNode
 } from './lib/tree.js';
+import {
+  nodeVolume,
+  totalGroupVolume,
+  directGroupVolume
+} from './lib/tree-helpers.js';
 import {
   IUpload,
   IDownload,
