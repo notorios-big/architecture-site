@@ -1,23 +1,14 @@
-// server.js (completo con endpoint de embeddings)
+// server.js - API Server only
 import dotenv from 'dotenv';
-import path from 'path';
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import { getCache } from './lib/embeddings-cache.js';
 import { retryOpenAI, retryAnthropic, formatUserError } from './lib/retry-helper.js';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 const app = express();
-const PUBLIC_DIR = path.join(__dirname, 'public');
-const INDEX_HTML = path.join(PUBLIC_DIR, 'index.html');
 
 // Middlewares básicos
 app.use(cors({ origin: '*' }));
@@ -1501,34 +1492,20 @@ app.get('/api/load-state', async (req, res) => {
   }
 });
 
-// Servir archivos estáticos desde ./public
-app.use(express.static(PUBLIC_DIR, {
-  setHeaders: (res, p) => {
-    if (p.endsWith('.jsx')) res.setHeader('Content-Type', 'application/javascript');
-    if (p.endsWith('.js')) res.setHeader('Cache-Control', 'no-cache');
-  },
-}));
-
-// Salud
+// Health check endpoint
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    publicDir: PUBLIC_DIR,
-    indexHtmlExists: true,
+    openai_configured: !!process.env.OPENAI_API_KEY,
+    anthropic_configured: !!process.env.ANTHROPIC_API_KEY
   });
-});
-
-// Entregar el SPA (raíz y cualquier ruta del front)
-app.get(['/', '/*'], (_req, res) => {
-  res.sendFile(INDEX_HTML);
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log('────────────────────────────────────────────');
-  console.log(`Servidor listo: http://localhost:${PORT}`);
-  console.log('Sirviendo estáticos desde:', PUBLIC_DIR);
-  console.log('Index HTML:', INDEX_HTML);
-  console.log('API Key configurada:', !!process.env.OPENAI_API_KEY);
+  console.log(`🚀 API Server running on http://localhost:${PORT}`);
+  console.log(`📊 OpenAI API: ${process.env.OPENAI_API_KEY ? '✅' : '❌'}`);
+  console.log(`🤖 Anthropic API: ${process.env.ANTHROPIC_API_KEY ? '✅' : '❌'}`);
   console.log('────────────────────────────────────────────');
 });
