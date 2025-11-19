@@ -3,15 +3,33 @@
   "version": "1.0.0",
   "description": "Servidor local para embeddings",
   "main": "server.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server.js",
+    "start": "concurrently \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@headlessui/react": "^2.2.0",
+    "@heroicons/react": "^2.2.0",
+    "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "drawflow": "^0.0.60",
     "express": "^4.19.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0-beta.6",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "tailwindcss": "^4.0.0-beta.6",
+    "vite": "^6.0.7"
   }
 }

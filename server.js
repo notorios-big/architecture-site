@@ -1,11 +1,19 @@
 // server.js (completo con endpoint de embeddings)
-require('dotenv').config();
-const path = require('path');
-const express = require('express');
-const cors = require('cors');
-const Anthropic = require('@anthropic-ai/sdk');
-const { getCache } = require('./lib/embeddings-cache');
-const { retryOpenAI, retryAnthropic, formatUserError } = require('./lib/retry-helper');
+import dotenv from 'dotenv';
+import path from 'path';
+import express from 'express';
+import cors from 'cors';
+import fs from 'fs';
+import Anthropic from '@anthropic-ai/sdk';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { getCache } from './lib/embeddings-cache.js';
+import { retryOpenAI, retryAnthropic, formatUserError } from './lib/retry-helper.js';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -155,7 +163,6 @@ app.post('/api/embeddings', async (req, res) => {
 });
 
 // Función auxiliar para remover code fences de JSON (```json ... ```)
-const fs = require('fs');
 
 /**
  * Limpia la respuesta del modelo removiendo los code fences de markdown
@@ -1516,7 +1523,7 @@ app.get(['/', '/*'], (_req, res) => {
   res.sendFile(INDEX_HTML);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log('────────────────────────────────────────────');
   console.log(`Servidor listo: http://localhost:${PORT}`);

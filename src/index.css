@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    @apply min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/95 backdrop-blur-xl border border-white/20;
+  }
+
+  .glass-dark {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+
+  .gradient-border {
+    position: relative;
+    background: linear-gradient(white, white) padding-box,
+                linear-gradient(135deg, #667eea, #764ba2) border-box;
+    border: 2px solid transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-slate-100 rounded-lg;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-lg hover:bg-slate-400;
+  }
+
+  .node-card {
+    will-change: transform, box-shadow;
+    @apply cursor-grab active:cursor-grabbing;
+  }
+
+  .node-card:hover {
+    @apply -translate-y-0.5 shadow-xl;
+  }
+
+  .drag-over-active {
+    @apply !border-indigo-500 !bg-gradient-to-br !from-indigo-50 !to-purple-50;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2), 0 10px 25px -5px rgba(0, 0, 0, 0.1) !important;
+    transform: translate3d(0, 0, 0) scale(1.01) !important;
+  }
+
+  input[type="range"] {
+    accent-color: #8b5cf6;
+  }
+
+  .tab-button {
+    @apply relative px-6 py-3 font-semibold transition-all rounded-t-lg;
+  }
+
+  .tab-button.active {
+    @apply bg-white/95 text-indigo-600;
+  }
+
+  .tab-button:not(.active) {
+    @apply text-white/70 hover:text-white hover:bg-white/5;
+  }
+}
+
+/* Drawflow Styles */
+#drawflow {
+  width: 100%;
+  height: 100%;
+  background: #fafafa;
+  background-size: 20px 20px;
+  background-image:
+    linear-gradient(to right, #f0f0f0 1px, transparent 1px),
+    linear-gradient(to bottom, #f0f0f0 1px, transparent 1px);
+}
+
+.drawflow .drawflow-node {
+  @apply rounded-xl border-none p-0;
+  background: transparent;
+  min-width: 280px;
+}
+
+.drawflow .drawflow-node.selected {
+  box-shadow: 0 0 0 2px #8b5cf6;
+}
+
+.drawflow .connection .main-path {
+  stroke: #8b5cf6;
+  stroke-width: 3px;
+  fill: none;
+}
+
+.drawflow .connection .main-path:hover {
+  stroke: #a78bfa;
+  stroke-width: 4px;
+}
+
+.drawflow .connection.selected .main-path {
+  stroke: #10b981;
+  stroke-width: 4px;
+}
+
+.drawflow-node input,
+.drawflow-node output {
+  display: none;
+}
+
+.modal-overlay {
+  @apply fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] animate-fade-in;
+}
+
+.modal-content {
+  @apply bg-white rounded-2xl max-w-2xl w-11/12 max-h-[80vh] overflow-hidden shadow-2xl animate-slide-up;
+}
+
+.custom-node {
+  @apply bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl p-4 min-w-[250px] shadow-md border-2 border-white/30 hover:shadow-lg;
+}
+
+.drop-zone-expanded {
+  @apply relative min-h-10;
+}
+
+.drop-zone-expanded::before {
+  content: '';
+  @apply absolute -inset-2 border-2 border-dashed border-indigo-500/30 rounded-lg pointer-events-none transition-opacity;
+}
