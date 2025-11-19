@@ -1,6 +1,7 @@
 // src/lib/icons.jsx
 // Iconos usando Heroicons con wrapper para compatibilidad
 
+import React from 'react';
 import {
   ArrowUpTrayIcon,
   ArrowDownTrayIcon,
