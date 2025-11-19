@@ -1,7 +1,7 @@
 // src/views/TreeView.jsx
 import React, { useState, useCallback, useMemo, useRef, memo } from 'react';
 import { nodeVolume, totalGroupVolume, directGroupVolume } from '../lib/tree-helpers.js';
-import { IChevronR, IChevronD, IFolderOpen, IEdit, ICheck, IX, ITrash } from '../lib/icons';
+import { IChevronR, IChevronD, IFolderOpen, IEdit, ICheck, IX, ITrash } from '../lib/icons.jsx';
 
 // Throttle optimizado con requestAnimationFrame para smoothness
 const throttleRAF = (func) => {

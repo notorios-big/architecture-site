@@ -3,7 +3,7 @@ import React, { memo } from 'react';
 import {
   IUpload, IDownload, IFileUp, ITrash, IMinimize, IPlus,
   IFolderOpen, IList, INetwork
-} from '../lib/icons';
+} from '../lib/icons.jsx';
 
 const Toolbar = memo(({
   keywords,

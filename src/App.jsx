@@ -33,9 +33,9 @@ import {
   IEye,
   IList,
   INetwork
-} from './lib/icons';
-import TreeView from './views/TreeView';
-import FlowView from './views/FlowView';
+} from './lib/icons.jsx';
+import TreeView from './views/TreeView.jsx';
+import FlowView from './views/FlowView.jsx';
 
 // Hacer nodeVolume global para que FlowView pueda acceder (legacy compatibility)
 window.nodeVolume = nodeVolume;

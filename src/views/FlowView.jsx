@@ -1,7 +1,7 @@
 // src/views/FlowView.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { nodeVolume } from '../lib/tree-helpers.js';
-import { IFolderOpen, ITrash, IEdit, ICheck, IChevronR, IChevronD, IEye } from '../lib/icons';
+import { IFolderOpen, ITrash, IEdit, ICheck, IChevronR, IChevronD, IEye } from '../lib/icons.jsx';
 
 const FlowView = ({
   tree,

@@ -1,7 +1,7 @@
 // src/components/KeywordModal.jsx
 import React from 'react';
 import { nodeVolume } from '../lib/tree.js';
-import { IX } from '../lib/icons';
+import { IX } from '../lib/icons.jsx';
 
 const KeywordModal = ({ keywordModal, setKeywordModal }) => {
   if (!keywordModal) return null;
