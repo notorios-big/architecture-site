@@ -10,7 +10,62 @@
   }
 }
 
+/* Animaciones personalizadas */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 @layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
   .glass {
     @apply bg-white/95 backdrop-blur-xl border border-white/20;
   }
@@ -113,11 +168,11 @@
 }
 
 .modal-overlay {
-  @apply fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] animate-fade-in;
+  @apply fixed inset-0 bg-black/50 flex items-center justify-center z-[9999];
 }
 
 .modal-content {
-  @apply bg-white rounded-2xl max-w-2xl w-11/12 max-h-[80vh] overflow-hidden shadow-2xl animate-slide-up;
+  @apply bg-white rounded-2xl max-w-2xl w-11/12 max-h-[80vh] overflow-hidden shadow-2xl;
 }
 
 .custom-node {
